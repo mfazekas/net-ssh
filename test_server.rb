@@ -162,7 +162,7 @@ class ServerSession
     socket.closed?
   end
 
-  def run_loop
+  def run_loop(&block)
     loop do
       if @connection
         @connection.process
@@ -181,13 +181,7 @@ class ServerSession
           auth_method = packet.read_string
           send_message(Buffer.from(:byte,USERAUTH_SUCCESS))
           @connection = Connection::Session.new(self, options)
-          @connection.on_open_channel('session') do |session, channel, packet|
-            channel.on_request 'exec' do |channel,data|
-              command = data.read_string
-              puts "received command:#{command}"
-              channel.send_data "reply to :#{command}"
-            end
-          end
+          yield @connection
           @connection.process
         end
       end
@@ -387,7 +381,15 @@ Thread.start do
       end
       options[:server_side] = true
       session = Net::SSH::Transport::ServerSession.new(client,options)
-      session.run_loop
+      session.run_loop do |connection|
+        connection.on_open_channel('session') do |session, channel, packet|
+          channel.on_request 'exec' do |channel,data|
+            command = data.read_string
+            puts "received command:#{command}"
+            channel.send_data "reply to :#{command}"
+           end
+        end
+      end
     end
   end
 end
