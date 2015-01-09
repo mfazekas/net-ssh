@@ -64,9 +64,14 @@ module Net; module SSH; module Transport; module Kex
     # The caller is expected to be able to understand how to use these
     # deliverables.
     def exchange_keys
-      result = send_kexinit
-      verify_server_key(result[:server_key])
-      session_id = verify_signature(result)
+      if @data[:server_side]
+        result = reply_kexinit
+        session_id = result[:session_id]
+      else
+        result = send_kexinit
+        verify_server_key(result[:server_key])
+        session_id = verify_signature(result)
+      end
       confirm_newkeys
 
       return { :session_id        => session_id, 
@@ -113,13 +118,16 @@ module Net; module SSH; module Transport; module Kex
       # Generate a DH key with a private key consisting of the given
       # number of bytes.
       def generate_key #:nodoc:
-        dh = OpenSSL::PKey::DH.new
+        dh = nil
+        if data[:server_side]
+          dh = read_and_handle_get_request
+        else
+          dh = OpenSSL::PKey::DH.new
+          dh.p, dh.g = get_parameters
+          dh.priv_key = OpenSSL::BN.rand(data[:need_bytes] * 8)
 
-        dh.p, dh.g = get_parameters
-        dh.priv_key = OpenSSL::BN.rand(data[:need_bytes] * 8)
-
-        dh.generate_key! until dh.valid?
-
+          dh.generate_key! until dh.valid?
+        end
         dh
       end
 
@@ -137,7 +145,7 @@ module Net; module SSH; module Transport; module Kex
 
         # expect the KEXDH_REPLY message
         buffer = connection.next_message
-        raise Net::SSH::Exception, "expected REPLY" unless buffer.type == reply
+        raise Net::SSH::Exception, "expected REPLY got #{buffer.type}" unless buffer.type == reply
 
         result = Hash.new
 
@@ -156,6 +164,33 @@ module Net; module SSH; module Transport; module Kex
         result[:server_sig] = sig_buffer.read_string
 
         return result
+      end
+
+      def reply_kexinit
+        init, reply = get_message_types
+
+        buffer = connection.next_message
+        raise Net::SSH::Exception, "expected REPLY got #{buffer.type}" unless buffer.type == init
+        client_dh_pubkey = buffer.read_bignum
+        puts " => client_dh_pubkey :#{client_dh_pubkey.to_s(16)}"
+
+        server_key =  OpenSSL::PKey::RSA.new(2048) # Todo server key
+        server_dh_pubkey = dh.pub_key
+        key_type = algorithms.host_key
+
+        server_key_blob = Net::SSH::Buffer.from(:key, server_key)
+        shared_secret = OpenSSL::BN.new(dh.compute_key(client_dh_pubkey), 2)
+
+        signature_buffer = build_signature_buffer({key_blob: server_key_blob,server_dh_pubkey: server_dh_pubkey,shared_secret: shared_secret,client_pubkey:client_dh_pubkey})
+        #puts "Signature buffer:#{signature_buffer}"
+        hash = @digester.digest(signature_buffer.to_s)
+        puts "Hash on server:#{hash}"
+        signature = server_key.ssh_do_sign(hash)
+
+        buffer = Net::SSH::Buffer.from(:byte, reply, :string, server_key_blob, :bignum, server_dh_pubkey, 
+          :string, Net::SSH::Buffer.from(:string, Net::SSH::Buffer.new(key_type), :string, Net::SSH::Buffer.new(signature)))
+        connection.send_message(buffer)
+        { session_id: hash, server_key: server_key, shared_secret: shared_secret}
       end
 
       # Verify that the given key is of the expected type, and that it

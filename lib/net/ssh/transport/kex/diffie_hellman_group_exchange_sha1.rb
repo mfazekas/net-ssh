@@ -33,6 +33,31 @@ module Net::SSH::Transport::Kex
         data[:need_bytes] = need_bits / 8
       end
 
+      def read_and_handle_get_request
+        buffer = connection.next_message
+        if buffer.type == KEXDH_GEX_REQUEST
+          min_bits = buffer.read_long
+          need_bits = buffer.read_long
+          max_bits = buffer.read_long
+          @data[:min_bits] = min_bits
+          @data[:max_bits] = max_bits
+          min_bits = [min_bits,MINIMUM_BITS].max
+          max_bits = [max_bits,MAXIMUM_BITS].min
+          need_bits = [min_bits,need_bits].max
+          need_bits = [max_bits,need_bits].min
+          @data[:need_bits] = need_bits
+
+          #priv_key = OpenSSL::PKey::RSA.new(need_bits)
+          dh = OpenSSL::PKey::DH.new(need_bits)
+          buffer = Net::SSH::Buffer.from(:byte,KEXDH_GEX_GROUP, :bignum, dh.p ,:bignum, dh.g)
+          connection.send_message(buffer)
+          return dh
+        else
+          raise Net::SSH::Exception, "expected KEXDH_GEX_REQUEST, got #{buffer.type}"
+        end
+      end
+
+
       # Returns the DH key parameters for the given session.
       def get_parameters
         compute_need_bits
@@ -62,17 +87,32 @@ module Net::SSH::Transport::Kex
       # the server.
       def build_signature_buffer(result)
         response = Net::SSH::Buffer.new
-        response.write_string data[:client_version_string],
+
+        if data[:server_side]
+          response.write_string data[:client_version_string],
+                              data[:server_version_string],
+                              data[:server_algorithm_packet],
+                              data[:client_algorithm_packet],
+                              result[:key_blob]
+          response.write_long data[:min_bits],
+                              data[:need_bits],
+                              data[:max_bits]
+          response.write_bignum dh.p, dh.g, result[:client_pubkey],
+                              result[:server_dh_pubkey],
+                              result[:shared_secret]
+        else
+          response.write_string data[:client_version_string],
                               data[:server_version_string],
                               data[:client_algorithm_packet],
                               data[:server_algorithm_packet],
                               result[:key_blob]
-        response.write_long MINIMUM_BITS,
+          response.write_long MINIMUM_BITS,
                             data[:need_bits],
                             MAXIMUM_BITS
-        response.write_bignum dh.p, dh.g, dh.pub_key,
+          response.write_bignum dh.p, dh.g, dh.pub_key,
                               result[:server_dh_pubkey],
                               result[:shared_secret]
+        end
         response
       end
   end

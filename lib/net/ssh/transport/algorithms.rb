@@ -354,13 +354,14 @@ module Net; module SSH; module Transport
       def exchange_keys
         debug { "exchanging keys" }
 
-        algorithm = Kex::MAP[kex].new(self, session,
+        algorithm = Kex::MAP[kex].new(self, session, {
           :client_version_string => Net::SSH::Transport::ServerVersion::PROTO_VERSION,
           :server_version_string => session.server_version.version,
           :server_algorithm_packet => @server_packet,
           :client_algorithm_packet => @client_packet,
           :need_bytes => kex_byte_requirement,
-          :logger => logger)
+          :logger => logger}.
+          merge(options[:server_side] ? {server_side: true} : {}))
         result = algorithm.exchange_keys
 
         secret   = result[:shared_secret].to_ssh
@@ -370,16 +371,25 @@ module Net; module SSH; module Transport
         @session_id ||= hash
 
         key = Proc.new { |salt| digester.digest(secret + hash + salt + @session_id) }
-        
-        iv_client = key["A"]
-        iv_server = key["B"]
-        key_client = key["C"]
-        key_server = key["D"]
-        mac_key_client = key["E"]
-        mac_key_server = key["F"]
+
+        if options[:server_side]
+          iv_client = key["B"]
+          iv_server = key["A"]
+          key_client = key["D"]
+          key_server = key["C"]
+          mac_key_client = key["F"]
+          mac_key_server = key["E"]
+        else
+          iv_client = key["A"]
+          iv_server = key["B"]
+          key_client = key["C"]
+          key_server = key["D"]
+          mac_key_client = key["E"]
+          mac_key_server = key["F"]
+        end
 
         parameters = { :shared => secret, :hash => hash, :digester => digester }
-        
+
         cipher_client = CipherFactory.get(encryption_client, parameters.merge(:iv => iv_client, :key => key_client, :encrypt => true))
         cipher_server = CipherFactory.get(encryption_server, parameters.merge(:iv => iv_server, :key => key_server, :decrypt => true))
 
