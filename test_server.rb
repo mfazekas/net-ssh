@@ -30,6 +30,7 @@ Thread.start do
       options[:server_side] = true
       options[:server_keys] = server_keys.keys
       options[:host_key] = server_keys.types
+      options[:kex] = ['diffie-hellman-group-exchange-sha256']
       options[:server_dh] = server_dhs
       session = Net::SSH::Transport::ServerSession.new(client,options)
       session.run_loop do |connection|
