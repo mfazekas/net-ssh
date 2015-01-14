@@ -14,12 +14,15 @@ Thread.abort_on_exception=true
 logger = Logger.new(STDERR)
 logger.level = Logger::DEBUG
 
+puts "Setting up server keys..."
 server_keys = Net::SSH::Server::Keys.new(logger: logger, server_keys_directory: '.')
 server_keys.load_or_generate
 
+puts "Precomputing dh keys..."
 key_sizes = [1024]
 server_dhs = Hash[key_sizes.map {|i| [i,OpenSSL::PKey::DH.new(i)]}]
 
+puts "Listening on port #{PORT}..."
 Thread.start do
   server = TCPServer.new PORT
   header = []
@@ -31,6 +34,7 @@ Thread.start do
       options[:server_keys] = server_keys.keys
       options[:host_key] = server_keys.types
       options[:kex] = ['diffie-hellman-group-exchange-sha256']
+      options[:hmac] = ['hmac-md5']
       options[:server_dh] = server_dhs
       session = Net::SSH::Transport::ServerSession.new(client,options)
       session.run_loop do |connection|
