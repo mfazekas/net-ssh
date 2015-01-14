@@ -224,10 +224,12 @@ module Net; module SSH; module Transport
             end
             lwarn { "unsupported #{algorithm} algorithm: `#{unsupported}'" } unless unsupported.empty?
 
-            # make sure all of our supported algorithms are tacked onto the
-            # end, so that if the user tries to give a list of which none are
-            # supported, we can still proceed.
-            list.each { |name| algorithms[algorithm] << name unless algorithms[algorithm].include?(name) }
+            unless options[:server_side]
+              # make sure all of our supported algorithms are tacked onto the
+              # end, so that if the user tries to give a list of which none are
+              # supported, we can still proceed.
+              list.each { |name| algorithms[algorithm] << name unless algorithms[algorithm].include?(name) }
+            end
           end
         end
 
@@ -323,7 +325,15 @@ module Net; module SSH; module Transport
       # server and those set by the client. This is called by
       # #negotiate_algorithms.
       def negotiate(algorithm)
-        match = self[algorithm].find { |item| @server_data[algorithm].include?(item) }
+        if options[:server_side]
+          sshserver_algs = self[algorithm]
+          sshclient_algs = @server_data[algorithm]
+        else
+          sshclient_algs = self[algorithm]
+          sshserver_algs = @server_data[algorithm]
+        end
+
+        match = sshclient_algs.find { |item| sshserver_algs.include?(item) }
 
         if match.nil?
           raise Net::SSH::Exception, "could not settle on #{algorithm} algorithm"
@@ -354,14 +364,32 @@ module Net; module SSH; module Transport
       def exchange_keys
         debug { "exchanging keys" }
 
-        algorithm = Kex::MAP[kex].new(self, session, {
-          :client_version_string => Net::SSH::Transport::ServerVersion::PROTO_VERSION,
-          :server_version_string => session.server_version.version,
-          :server_algorithm_packet => @server_packet,
-          :client_algorithm_packet => @client_packet,
+        if options[:server_side]
+          debug { "srv.server_packet: #{@server_packet}"}
+          debug { "srv.client_packet: #{@client_packet}"}
+          params = {
+            :client_version_string => session.client_version.version,
+            :server_version_string => session.client_version.local_version,
+            :server_algorithm_packet => @server_packet,
+            :client_algorithm_packet => @client_packet,
+            :server_side => true,
+            :server_keys => options[:server_keys],
+            :server_dh => options[:server_dh]
+          }
+        else
+          debug { "cli.server_packet: #{@server_packet}"}
+          debug { "cli.client_packet: #{@client_packet}"}
+          params = {
+            :client_version_string => session.server_version.local_version,
+            :server_version_string => session.server_version.version,
+            :server_algorithm_packet => @server_packet,
+            :client_algorithm_packet => @client_packet
+          }
+        end
+
+        algorithm = Kex::MAP[kex].new(self, session, params.merge({
           :need_bytes => kex_byte_requirement,
-          :logger => logger}.
-          merge(options[:server_side] ? {server_side: true} : {}))
+          :logger => logger}))
         result = algorithm.exchange_keys
 
         secret   = result[:shared_secret].to_ssh

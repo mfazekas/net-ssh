@@ -200,6 +200,7 @@ module Net; module SSH; module Transport
           # decipher it
           @packet = Net::SSH::Buffer.new(server.update_cipher(data))
           @packet_length = @packet.read_long
+          debug { "received packet with legnth: #{@packet_length}" }
         end
 
         need = @packet_length + 4 - server.block_size

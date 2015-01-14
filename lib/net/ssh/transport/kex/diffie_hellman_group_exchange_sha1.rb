@@ -47,8 +47,16 @@ module Net::SSH::Transport::Kex
           need_bits = [max_bits,need_bits].min
           @data[:need_bits] = need_bits
 
-          #priv_key = OpenSSL::PKey::RSA.new(need_bits)
-          dh = OpenSSL::PKey::DH.new(need_bits)
+          dh = data[:server_dh][need_bits]
+          if dh.nil?
+            puts "Generating DH #{need_bits}"
+            debug {"Generating DH"}
+            dh = OpenSSL::PKey::DH.new(need_bits)
+            puts "Generated DH"
+            debug {"Generated DH"}
+            puts "Sending KEXDH_GEX_GROUP"
+          end
+
           buffer = Net::SSH::Buffer.from(:byte,KEXDH_GEX_GROUP, :bignum, dh.p ,:bignum, dh.g)
           connection.send_message(buffer)
           return dh

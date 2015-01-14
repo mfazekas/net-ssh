@@ -550,6 +550,7 @@ module Net; module SSH; module Connection
           callback = @on_request[request] or raise ChannelRequestFailed
           callback.call(self, data)
         rescue ChannelRequestFailed
+          debug { "no request handler registered for #{request}" }
           result = false
         end
 

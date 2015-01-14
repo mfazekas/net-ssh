@@ -226,7 +226,7 @@ module Transport
 
         kex.expects(:new).
           with(algorithms, transport,
-            :client_version_string => Net::SSH::Transport::ServerVersion::PROTO_VERSION,
+            :client_version_string => transport.server_version.local_version,
             :server_version_string => transport.server_version.version,
             :server_algorithm_packet => kexinit.to_s,
             :client_algorithm_packet => buffer.to_s,

@@ -40,6 +40,9 @@ module Net; module SSH; module Transport; module Kex
     # required by this algorithm, which was acquired during earlier
     # processing.
     def initialize(algorithms, connection, data)
+      @data = data.dup
+      @logger = @data.delete(:logger)
+
       @p = get_p
       @g = get_g
 
@@ -47,9 +50,7 @@ module Net; module SSH; module Transport; module Kex
       @algorithms = algorithms
       @connection = connection
 
-      @data = data.dup
       @dh = generate_key
-      @logger = @data.delete(:logger)
     end
 
     # Perform the key-exchange for the given session, with the given
@@ -174,9 +175,11 @@ module Net; module SSH; module Transport; module Kex
         client_dh_pubkey = buffer.read_bignum
         puts " => client_dh_pubkey :#{client_dh_pubkey.to_s(16)}"
 
-        server_key =  OpenSSL::PKey::RSA.new(2048) # Todo server key
-        server_dh_pubkey = dh.pub_key
         key_type = algorithms.host_key
+        if ! server_key = data[:server_keys][key_type]
+          raise Net::SSH::Exception, "no server key was specified for type: #{key_type} keys: #{data[:server_keys].keys}"
+        end
+        server_dh_pubkey = dh.pub_key
 
         server_key_blob = Net::SSH::Buffer.from(:key, server_key)
         shared_secret = OpenSSL::BN.new(dh.compute_key(client_dh_pubkey), 2)

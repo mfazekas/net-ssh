@@ -86,6 +86,8 @@ module Net; module SSH; module Transport
 
       @algorithms = Algorithms.new(self, options)
       wait { algorithms.initialized? }
+
+      debug { "algorithms initialized!" }
     end
 
     # Returns the host (and possibly IP address) in a format compatible with

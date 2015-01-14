@@ -43,7 +43,8 @@ class MockTransport < Net::SSH::Transport::Session
   def initialize(options={})
     self.logger = options[:logger]
     self.host_as_string = "net.ssh.test,127.0.0.1"
-    self.server_version = OpenStruct.new(:version => "SSH-2.0-Ruby/Net::SSH::Test")
+    self.server_version = OpenStruct.new(:version => "SSH-2.0-Ruby/Net::SSH::Test",
+      local_version: "SSH-2.0-Ruby/Net::SSH::TestClient")
     @expectation = nil
     @queue = []
     @hints = {}

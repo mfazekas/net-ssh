@@ -23,6 +23,10 @@ module Net; module SSH; module Transport
     # The version string reported by the server.
     attr_reader :version
 
+    def local_version
+      ServerVersion::PROTO_VERSION
+    end
+
     # Instantiates a new ServerVersion and immediately (and synchronously)
     # negotiates the SSH protocol in effect, using the given socket.
     def initialize(socket, logger)
