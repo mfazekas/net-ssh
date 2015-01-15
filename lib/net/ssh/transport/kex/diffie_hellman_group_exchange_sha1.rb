@@ -33,6 +33,18 @@ module Net::SSH::Transport::Kex
         data[:need_bytes] = need_bits / 8
       end
 
+      def choose_dh min_bits, need_bits, max_bits
+        DiffieHellmanGroup14SHA1.dh
+      end
+
+      def dh_gen_key dh, need_bits
+        pbits = dh.p.num_bits
+        length = [need_bits * 2, pbits - 1].min
+        dh.priv_key = OpenSSL::BN.rand(length)
+        dh.generate_key!
+        raise unless dh.valid?
+      end
+
       def read_and_handle_get_request
         buffer = connection.next_message
         if buffer.type == KEXDH_GEX_REQUEST
@@ -47,18 +59,13 @@ module Net::SSH::Transport::Kex
           need_bits = [max_bits,need_bits].min
           @data[:need_bits] = need_bits
 
-          dh = data[:server_dh][need_bits]
-          if dh.nil?
-            puts "Generating DH #{need_bits}"
-            debug {"Generating DH"}
-            dh = OpenSSL::PKey::DH.new(need_bits)
-            puts "Generated DH"
-            debug {"Generated DH"}
-            puts "Sending KEXDH_GEX_GROUP"
-          end
+          dh = choose_dh min_bits, need_bits, max_bits
 
           buffer = Net::SSH::Buffer.from(:byte,KEXDH_GEX_GROUP, :bignum, dh.p ,:bignum, dh.g)
           connection.send_message(buffer)
+
+          dh_gen_key dh, need_bits # TODO is need_bits good
+
           return dh
         else
           raise Net::SSH::Exception, "expected KEXDH_GEX_REQUEST, got #{buffer.type}"

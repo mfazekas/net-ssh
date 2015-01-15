@@ -373,8 +373,7 @@ module Net; module SSH; module Transport
             :server_algorithm_packet => @server_packet,
             :client_algorithm_packet => @client_packet,
             :server_side => true,
-            :server_keys => options[:server_keys],
-            :server_dh => options[:server_dh]
+            :server_keys => options[:server_keys]
           }
         else
           debug { "cli.server_packet: #{@server_packet}"}

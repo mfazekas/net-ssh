@@ -31,6 +31,12 @@ module Net; module SSH; module Transport; module Kex
     # The group constant
     G = 2
 
+    def self.dh
+      ret = OpenSSL::PKey::DH.new
+      ret.p, ret.g = OpenSSL::BN.new(P_s, P_r), G
+      ret
+    end
+
     private
 
     def get_p
