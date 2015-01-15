@@ -1,3 +1,7 @@
+Server changes
+
+TODO: on_request now receives options with [:want_reply]
+
 === 2.9.4-beta1
 
 * Use sysread and syswrite on Windows instead of read_nonblock and write [marc-etienne]

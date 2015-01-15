@@ -317,6 +317,12 @@ module Net; module SSH; module Connection
       end
     end
 
+    # sends data if possible
+    def _flush
+      process
+      connection.process
+    end
+
     # Registers a callback to be invoked when data packets are received by the
     # channel. The callback is called with the channel as the first argument,
     # and the data as the second.
@@ -548,7 +554,9 @@ module Net; module SSH; module Connection
 
         begin
           callback = @on_request[request] or raise ChannelRequestFailed
-          callback.call(self, data)
+          opts = {want_reply:want_reply}
+          callback.call(self, data, opts)
+          want_reply = false if want_reply && !opts[:want_reply]
         rescue ChannelRequestFailed
           debug { "no request handler registered for #{request}" }
           result = false

@@ -39,6 +39,11 @@ class ServerSession
   # the initial key exchange completes, leaving you with a ready-to-use
   # transport session.
   def initialize(socket, options={})
+    options = options.merge(:server_side => true)
+
+    raise ArgumentError, "expected :server_keys options" unless options[:server_keys]
+    options[:host_key] ||= options[:server_keys].keys
+
     self.logger = options[:logger]
 
     @host = Socket.gethostname
@@ -92,24 +97,42 @@ class ServerSession
   def run_loop(&block)
     loop do
       if @connection
-        @connection.process
+        begin
+          @connection.process
+        rescue Net::SSH::Disconnect => e
+          debug { "connection was closed => shallowing exception:#{e}" }
+          break
+        rescue IOError => e
+          if e.message =~ /closed/ then 
+            debug { "connection was reset => shallowing exception:#{e}" }
+            false
+          else
+            raise
+          end
+        end
       else
         packet = poll_message(:block)
-        case packet.type
-        when SERVICE_REQUEST
-          packet_str = packet.read_string
-          case packet_str
-          when "ssh-userauth"
-            send_message(Buffer.from(:byte, SERVICE_ACCEPT))
+        if packet
+          case packet.type
+          when SERVICE_REQUEST
+            packet_str = packet.read_string
+            case packet_str
+            when "ssh-userauth"
+              send_message(Buffer.from(:byte, SERVICE_ACCEPT))
+            end
+            true
+          when USERAUTH_REQUEST
+            username = packet.read_string
+            next_service = packet.read_string
+            auth_method = packet.read_string
+            send_message(Buffer.from(:byte,USERAUTH_SUCCESS))
+            @connection = Connection::Session.new(self, options)
+            result = yield @connection
+            @connection.process
+            result
           end
-        when USERAUTH_REQUEST
-          username = packet.read_string
-          next_service = packet.read_string
-          auth_method = packet.read_string
-          send_message(Buffer.from(:byte,USERAUTH_SUCCESS))
-          @connection = Connection::Session.new(self, options)
-          yield @connection
-          @connection.process
+        else
+          true
         end
       end
     end
@@ -219,6 +242,22 @@ class ServerSession
       push(message) if message
       break if !block_given?
     end
+  end
+
+  alias :loop_forever :loop
+
+  def loop(wait=nil, &block)
+    loop_forever { break unless yield }
+  end
+
+  def process(wait=nil, &block)
+    return false unless preprocess(&block)
+
+    r = listeners.keys
+    w = r.select { |w2| w2.respond_to?(:pending_write?) && w2.pending_write? }
+    readers, writers, = Net::SSH::Compat.io_select(r, w, nil, io_select_wait(wait))
+
+    postprocess(readers, writers)
   end
 
   # Adds the given packet to the packet queue. If the queue is non-empty,

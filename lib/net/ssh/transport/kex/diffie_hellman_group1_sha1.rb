@@ -173,7 +173,6 @@ module Net; module SSH; module Transport; module Kex
         buffer = connection.next_message
         raise Net::SSH::Exception, "expected REPLY got #{buffer.type}" unless buffer.type == init
         client_dh_pubkey = buffer.read_bignum
-        puts " => client_dh_pubkey :#{client_dh_pubkey.to_s(16)}"
 
         key_type = algorithms.host_key
         if ! server_key = data[:server_keys][key_type]
@@ -187,7 +186,6 @@ module Net; module SSH; module Transport; module Kex
         signature_buffer = build_signature_buffer({key_blob: server_key_blob,server_dh_pubkey: server_dh_pubkey,shared_secret: shared_secret,client_pubkey:client_dh_pubkey})
         #puts "Signature buffer:#{signature_buffer}"
         hash = @digester.digest(signature_buffer.to_s)
-        puts "Hash on server:#{hash}"
         signature = server_key.ssh_do_sign(hash)
 
         buffer = Net::SSH::Buffer.from(:byte, reply, :string, server_key_blob, :bignum, server_dh_pubkey, 

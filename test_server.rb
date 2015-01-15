@@ -18,6 +18,12 @@ puts "Setting up server keys..."
 server_keys = Net::SSH::Server::Keys.new(logger: logger, server_keys_directory: '.')
 server_keys.load_or_generate
 
+def send_reply(channel,result)
+  msg_type = result ? Net::SSH::Connection::Constants::CHANNEL_SUCCESS : Net::SSH::Connection::Constants::CHANNEL_FAILURE
+  msg = Net::SSH::Buffer.from(:byte, msg_type, :long, channel.remote_id)
+  channel.connection.send_message(msg)
+end
+
 puts "Listening on port #{PORT}..."
 Thread.start do
   server = TCPServer.new PORT
@@ -39,10 +45,24 @@ Thread.start do
             puts "received command:#{command}"
             channel.send_data "reply to :#{command}"
           end
-          channel.on_request 'exec' do |channel,data|
+          channel.on_request 'exec' do |channel,data,opt|
+            #channel.process
             command = data.read_string
+            if opt[:want_reply]
+              send_reply(channel,true)
+              opt[:want_reply] = false
+            end
+            sleep 2
             puts "received command:#{command}"
-            channel.send_data "reply to :#{command}"
+            channel.send_data "command :#{command} reply: 42\n"
+            channel.eof!
+            channel._flush
+            channel.send_channel_request('exit-status',:long,42)
+            #channel.send_channel_request('eow@openssh.com')
+            channel.close
+            channel.on_eof { puts "on eof" ; channel.close }
+            #channel.close
+            #channel.send_channel_request('command-from-client', :string, "data-from-client")
            end
         end
       end
