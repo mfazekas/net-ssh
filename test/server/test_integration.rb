@@ -32,7 +32,10 @@ module Server
       Thread.start do |th|
         client = server.accept
         server_session = Net::SSH::Transport::ServerSession.new(client,
-           {server_keys:{'ssh-rsa'=>OpenSSL::PKey::RSA.new(1024)}}.merge(opts))
+           {server_keys:{'ssh-rsa'=>OpenSSL::PKey::RSA.new(1024)},
+            key:['diffie-hellman-group-exchange-sha256'],
+            hmac:['hmac-md5']
+           }.merge(opts))
         server_session.run_loop do |connection|
           connection.on_open_channel('session') do |session, channel, packet|
             channel.extend(Net::SSH::Server::ChannelExtensions)
