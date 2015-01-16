@@ -35,6 +35,8 @@ class ServerSession
   # The hash of options that were given to the object at initialization.
   attr_reader :options
 
+  attr_reader :auth_logic
+
   # Instantiates a new transport layer abstraction. This will block until
   # the initial key exchange completes, leaving you with a ready-to-use
   # transport session.
@@ -43,6 +45,9 @@ class ServerSession
 
     raise ArgumentError, "expected :server_keys options" unless options[:server_keys]
     options[:host_key] ||= options[:server_keys].keys
+
+    raise ArgumentError, "expected :auth_logic option" unless options[:auth_logic]
+    @auth_logic = options[:auth_logic]
 
     self.logger = options[:logger]
 
@@ -94,6 +99,43 @@ class ServerSession
     socket.closed?
   end
 
+  def _start_connection(&block)
+    @connection = Connection::Session.new(self, options)
+    result = yield @connection
+    @connection.process
+    result
+  end
+
+  def _do_userauth(packet,&block)
+    username = packet.read_string
+    next_service = packet.read_string
+    auth_method = packet.read_string
+    debug { "got USERAUTH_REQUEST: #{username} #{auth_method} #{next_service}"}
+    allowed_auth_methods = ['password','none']
+    unless allowed_auth_methods.include?(auth_method)
+      send_message(Buffer.from(:byte,USERAUTH_FAILURE,:string,allowed_auth_methods.join(','),:bool,false))
+      error { "not allowed auth method: #{auth_method} allowed list:#{allowed_auth_methods}" }
+      return false
+    end
+    method_class = Net::SSH::Authentication::Session._auth_method_name_to_class(auth_method)
+    if !method_class || !method_class.supports_server?
+      error { "unsupported auth method: #{auth_method}" }
+      send_message(Buffer.from(:byte,USERAUTH_FAILURE,:string,allowed_auth_methods.join(','),:bool,false))
+      return false
+    end
+    method = method_class.new(self,options)
+    if method.server_authenticate(username,next_service,auth_method,packet,auth_logic)
+      debug { "auth mehtod: #{auth_method} accepted "}
+      send_message(Buffer.from(:byte,USERAUTH_SUCCESS))
+      _start_connection(&block)
+      true
+    else
+      debug { "auth mehtod: #{auth_method} failed "}
+      send_message(Buffer.from(:byte,USERAUTH_FAILURE,:string,allowed_auth_methods.join(','),:bool,false))
+      false
+    end
+  end
+
   def run_loop(&block)
     loop do
       if @connection
@@ -118,18 +160,15 @@ class ServerSession
             packet_str = packet.read_string
             case packet_str
             when "ssh-userauth"
+              debug { "received ssh-userauth sending accept "}
               send_message(Buffer.from(:byte, SERVICE_ACCEPT))
             end
             true
           when USERAUTH_REQUEST
-            username = packet.read_string
-            next_service = packet.read_string
-            auth_method = packet.read_string
-            send_message(Buffer.from(:byte,USERAUTH_SUCCESS))
-            @connection = Connection::Session.new(self, options)
-            result = yield @connection
-            @connection.process
-            result
+            _do_userauth(packet,&block)
+            true
+          else
+            debug { "received unknown packet type: #{packet.type}" }
           end
         else
           true
@@ -209,6 +248,7 @@ class ServerSession
       packet = socket.next_packet(mode)
       return nil if packet.nil?
 
+      debug { "packet type: #{packet.type}" }
       case packet.type
       when DISCONNECT
         raise Net::SSH::Disconnect, "disconnected: #{packet[:description]} (#{packet[:reason_code]})"

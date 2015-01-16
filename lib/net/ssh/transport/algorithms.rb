@@ -224,7 +224,7 @@ module Net; module SSH; module Transport
             end
             lwarn { "unsupported #{algorithm} algorithm: `#{unsupported}'" } unless unsupported.empty?
 
-            unless options[:server_side]
+            unless (options[:server_side] || (options[:append_supported_algorithms] == false))
               # make sure all of our supported algorithms are tacked onto the
               # end, so that if the user tries to give a list of which none are
               # supported, we can still proceed.

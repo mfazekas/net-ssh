@@ -20,9 +20,20 @@ server_keys.load_or_generate
 
 puts "Listening on port #{PORT}..."
 
+class AuthLogic
+  def allow_password?(username,password,options)
+    password == username+'pwd'
+  end
+
+  def allow_none?(username,options)
+    username == 'foo'
+  end
+end
+
 Thread.start do
   server = TCPServer.new PORT
   header = []
+  auth_logic = AuthLogic.new
   loop do
     Thread.start(server.accept) do |client|
       options = {}
@@ -32,6 +43,7 @@ Thread.start do
       options[:host_key] = server_keys.types
       options[:kex] = ['diffie-hellman-group-exchange-sha256']
       options[:hmac] = ['hmac-md5']
+      options[:auth_logic] = auth_logic
       session = Net::SSH::Transport::ServerSession.new(client,options)
       session.run_loop do |connection|
         connection.on_open_channel('session') do |session, channel, packet|

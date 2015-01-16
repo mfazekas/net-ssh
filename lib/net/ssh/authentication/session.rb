@@ -48,6 +48,11 @@ module Net; module SSH; module Authentication
       @allowed_auth_methods = @auth_methods
     end
 
+    def self._auth_method_name_to_class(name)
+      class_name = name.split(/\W+/).map { |p| p.capitalize }.join
+      Methods.const_get(class_name)
+    end
+
     # Attempts to authenticate the given user, in preparation for the next
     # service request. Returns true if an authentication method succeeds in
     # authenticating the user, and false otherwise.
@@ -70,7 +75,7 @@ module Net; module SSH; module Authentication
 
           debug { "trying #{name}" }
           begin 
-            method = Methods.const_get(name.split(/\W+/).map { |p| p.capitalize }.join).new(self, :key_manager => key_manager)
+            method = self.class._auth_method_name_to_class(name).new(self, :key_manager => key_manager)
           rescue NameError
             debug{"Mechanism #{name} was requested, but isn't a known type.  Ignoring it."}
             next

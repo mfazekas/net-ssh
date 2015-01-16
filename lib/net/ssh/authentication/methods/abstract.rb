@@ -37,6 +37,10 @@ module Net; module SSH; module Authentication; module Methods
       session.transport.send_message(msg)
     end
 
+    def self.supports_server?
+      false
+    end
+
     # Creates a new USERAUTH_REQUEST packet. The extra arguments on the end
     # must be either boolean values or strings, and are tacked onto the end
     # of the packet. The new packet is returned, ready for sending.

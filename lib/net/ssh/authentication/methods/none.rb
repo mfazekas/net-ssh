@@ -27,7 +27,15 @@ module Net
               else
                 raise Net::SSH::Exception, "unexpected reply to USERAUTH_REQUEST: #{message.type} (#{message.inspect})"
             end   
-            
+          end
+
+          def self.supports_server?
+            true
+          end
+
+          def server_authenticate(username,next_service,auth_method,packet,auth_logic)
+            auth_logic.allow_none?(username,
+              {:next_service => next_service,:auth_method => auth_method, :packet => packet, :method => self})
           end
         end
 

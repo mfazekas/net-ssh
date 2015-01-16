@@ -48,6 +48,18 @@ module Net
             end
           end
 
+          def self.supports_server?
+            true
+          end
+
+          def server_authenticate(username,next_service,auth_method,packet,auth_logic)
+            packet.read_bool
+            password = packet.read_string
+
+            auth_logic.allow_password?(username,password,
+              {:next_service => next_service,:auth_method => auth_method, :packet => packet, :method => self})
+          end
+
           private
 
           NUMBER_OF_PASSWORD_PROMPTS = 3
