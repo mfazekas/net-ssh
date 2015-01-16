@@ -56,7 +56,7 @@ module Server
       sshopts = {LogLevel:'ERROR', UserKnownHostsFile:'/dev/null', StrictHostKeyChecking:'no',
         ServerAliveInterval:1000}
       sshopts_str = sshopts.map { |k,v| "-o #{k.to_s}=#{v}" }.join(' ')
-      #sshopts_str += ' -vvvv'
+      sshopts_str += ' -vvvv'
       command = "ssh #{sshopts_str} #{host} -p #{port} 'sleep 3 ; echo hello'"
       #command = "ssh #{sshopts_str} localhost 'sleep 3 ; echo hello'"
       output, status = Open3.capture2(command)
