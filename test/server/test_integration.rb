@@ -6,7 +6,6 @@ require 'net/ssh/server/channel_extensions'
 require 'net/ssh/transport/server_session'
 require 'net/ssh/transport/session'
 require 'open3'
-require 'byebug'
 
 module Server
 
