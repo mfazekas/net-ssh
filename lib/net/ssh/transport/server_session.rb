@@ -138,6 +138,9 @@ class ServerSession
 
   def run_loop(&block)
     loop do
+      if (options[:run_loop_hook])
+        options[:run_loop_hook][]
+      end
       if @connection
         begin
           @connection.process

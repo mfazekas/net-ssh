@@ -558,7 +558,7 @@ module Net; module SSH; module Connection
           callback.call(self, data, opts)
           want_reply = false if want_reply && !opts[:want_reply]
         rescue ChannelRequestFailed
-          debug { "no request handler registered for #{request}" }
+          debug { "no request handler registered for #{request} supported requests #{@on_request.keys}" }
           result = false
         end
 
