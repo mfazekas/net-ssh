@@ -71,7 +71,8 @@ module Net; module SSH; module Connection
 
       @channel_id_counter = -1
       @channels = Hash.new(NilChannel.new(self))
-      @listeners = { transport.socket => nil }
+      @listeners = options[:listeners] || {}
+      @listeners[transport.socket] = nil
       @pending_requests = []
       @channel_open_handlers = {}
       @on_global_request = {}
