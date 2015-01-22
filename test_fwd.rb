@@ -1,4 +1,6 @@
 $:.push('./lib')
+ENABLE_KERBEROS = true
+$:.push(ENV['NET_SSH_KERBEROS'] || '../net-ssh-kerberos/lib/') if ENABLE_KERBEROS
 require 'net/ssh'
 require 'net/ssh/server'
 require 'net/ssh/server/keys'
@@ -8,12 +10,16 @@ require 'socket'
 require 'ostruct'
 require 'byebug'
 
+if ENABLE_KERBEROS
+  require 'net/ssh/kerberos'
+end
+
 PORT = 2000
 Thread.abort_on_exception=true
 
 logger = Logger.new(STDERR)
 logger.level = Logger::DEBUG
-logger.level = Logger::WARN
+#logger.level = Logger::WARN
 
 puts "Setting up server keys..."
 server_keys = Net::SSH::Server::Keys.new(logger: logger, server_keys_directory: '.')
@@ -141,6 +147,12 @@ Thread.start do
       options[:hmac] = ['hmac-md5']
       options[:auth_logic] = auth_logic
       options[:listeners] = {}
+      if ENABLE_KERBEROS
+        options[:allowed_auth_methods] = ['gssapi-with-mic']
+        options[:gss_server_host] = 'precise32.fazmic.com'
+        options[:gss_server_service] = 'host'
+        options[:gss_server_servicekeytab] = '/etc/krb5.keytab'
+      end
 
       fwd_options = {}
       fwd_options[:listeners] = options[:listeners]

@@ -48,6 +48,7 @@ class ServerSession
 
     raise ArgumentError, "expected :auth_logic option" unless options[:auth_logic]
     @auth_logic = options[:auth_logic]
+    @allowed_auth_methods = options[:allowed_auth_methods] || ['password','none']
 
     self.logger = options[:logger]
 
@@ -111,7 +112,7 @@ class ServerSession
     next_service = packet.read_string
     auth_method = packet.read_string
     debug { "got USERAUTH_REQUEST: #{username} #{auth_method} #{next_service}"}
-    allowed_auth_methods = ['password','none']
+    allowed_auth_methods = @allowed_auth_methods
     unless allowed_auth_methods.include?(auth_method)
       send_message(Buffer.from(:byte,USERAUTH_FAILURE,:string,allowed_auth_methods.join(','),:bool,false))
       error { "not allowed auth method: #{auth_method} allowed list:#{allowed_auth_methods}" }
@@ -119,7 +120,7 @@ class ServerSession
     end
     method_class = Net::SSH::Authentication::Session._auth_method_name_to_class(auth_method)
     if !method_class || !method_class.supports_server?
-      error { "unsupported auth method: #{auth_method}" }
+      error { "unsupported auth method: #{auth_method} class:#{method_class}" }
       send_message(Buffer.from(:byte,USERAUTH_FAILURE,:string,allowed_auth_methods.join(','),:bool,false))
       return false
     end
@@ -193,6 +194,11 @@ class ServerSession
   def shutdown!
     error { "forcing connection closed" }
     socket.close
+  end
+
+  def transport
+    self
+    # todo create ServerAuthSession
   end
 
   # Returns a new service_request packet for the given service name, ready
