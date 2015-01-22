@@ -47,29 +47,40 @@ class FwdConnection
       @fwd_channel=value
     end
   end
-
   def initialize(host,options)
     @host = host
     @options = options
     logger = Logger.new(STDERR)
     logger.level = Logger::DEBUG
-    logger.level = Logger::WARN
+    #logger.level = Logger::WARN
     logger.formatter = proc { |severity, datetime, progname, msg| "[FWD] #{datetime}: #{msg}\n" }
     options[:logger] = logger
   end
   def connect
     @transport = Net::SSH::Transport::Session.new(@host, @options)
     @transport.socket.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1)
-    @auth = Net::SSH::Authentication::Session.new(@transport, @options)
   end
-
   def _init_connection
     @fwd_conn = Net::SSH::Connection::Session.new(@transport, @options)
   end
 
   def allow_password?(username,password,options)
+    @auth = Net::SSH::Authentication::Session.new(@transport, @options)
     if @auth.authenticate(options[:next_service], username, password) 
       _init_connection
+    end
+  end
+
+  def allow_kerberos?(username,srv,options)
+    if delegated_credentials = srv.delegated_credentials
+      @auth = Net::SSH::Authentication::Session.new(@transport, @options.merge(auth_methods: ["gssapi-with-mic"],
+        gss_delegated_credentials: delegated_credentials))
+      if @auth.authenticate(options[:next_service], username)
+        _init_connection
+      end
+    else
+      error { "Could not delegate credentials" }
+      false
     end
   end
 
