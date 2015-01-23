@@ -1,6 +1,7 @@
 $:.push('./lib')
 ENABLE_KERBEROS = true
-$:.push(ENV['NET_SSH_KERBEROS'] || '../net-ssh-kerberos/lib/') if ENABLE_KERBEROS
+$:.push(ENV['GSSAPI_DIR'] || '../gssapi/lib/') if ENABLE_KERBEROS
+$:.push(ENV['NET_SSH_KERBEROS_DIR'] || '../net-ssh-kerberos/lib/') if ENABLE_KERBEROS
 require 'net/ssh'
 require 'net/ssh/server'
 require 'net/ssh/server/keys'
@@ -19,7 +20,7 @@ Thread.abort_on_exception=true
 
 logger = Logger.new(STDERR)
 logger.level = Logger::DEBUG
-#logger.level = Logger::WARN
+logger.level = Logger::WARN
 
 puts "Setting up server keys..."
 server_keys = Net::SSH::Server::Keys.new(logger: logger, server_keys_directory: '.')
@@ -39,6 +40,8 @@ end
 
 
 class FwdConnection
+  include Net::SSH::Loggable
+
   module FwdChannelExtensions
     def fwd_channel
       @fwd_channel
@@ -47,19 +50,23 @@ class FwdConnection
       @fwd_channel=value
     end
   end
+
   def initialize(host,options)
     @host = host
     @options = options
-    logger = Logger.new(STDERR)
-    logger.level = Logger::DEBUG
-    #logger.level = Logger::WARN
-    logger.formatter = proc { |severity, datetime, progname, msg| "[FWD] #{datetime}: #{msg}\n" }
-    options[:logger] = logger
+    alogger = Logger.new(STDERR)
+    alogger.level = Logger::DEBUG
+    alogger.level = Logger::WARN
+    alogger.formatter = proc { |severity, datetime, progname, msg| "[FWD] #{datetime}: #{msg}\n" }
+    options[:logger] = alogger
+    self.logger = alogger
   end
+
   def connect
     @transport = Net::SSH::Transport::Session.new(@host, @options)
     @transport.socket.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1)
   end
+
   def _init_connection
     @fwd_conn = Net::SSH::Connection::Session.new(@transport, @options)
   end
@@ -75,8 +82,15 @@ class FwdConnection
     if delegated_credentials = srv.delegated_credentials
       @auth = Net::SSH::Authentication::Session.new(@transport, @options.merge(auth_methods: ["gssapi-with-mic"],
         gss_delegated_credentials: delegated_credentials))
+      debug { "_auth started to upstream "}
       if @auth.authenticate(options[:next_service], username)
+        debug { "_auth finished to upstream "}
+        debug { "_init_connection before" }
         _init_connection
+        debug { "_init_connection after" }
+        true
+      else
+        false
       end
     else
       error { "Could not delegate credentials" }
@@ -95,7 +109,8 @@ class FwdConnection
   def _fwd_channel(channel)
     result = channel.fwd_channel
     while result.nil? do
-      timeout = nil
+      timeout = 0.001
+      debug { "waiting for fwd hannel "}
       @fwd_conn.process(timeout)
       result = channel.fwd_channel
     end
@@ -134,10 +149,12 @@ class FwdConnection
       channel.extend(Net::SSH::Server::ChannelExtensions)
       channel.extend(FwdChannelExtensions)
       _handle_channel(channel)
+      debug { "received open_channel from client" }
       @fwd_conn.open_channel('session') do |fwd_channel|
-        puts "opened channel on fwd! setting:#{fwd_channel}"
+        debug { "opened channel on fwd! setting:#{fwd_channel}" }
         channel.fwd_channel=fwd_channel
       end
+      debug { "reply open_channel to client" }
     end
   end
 end
