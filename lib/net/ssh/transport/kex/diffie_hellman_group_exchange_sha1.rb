@@ -10,6 +10,7 @@ module Net::SSH::Transport::Kex
     MINIMUM_BITS      = 1024
     MAXIMUM_BITS      = 8192
 
+    KEXDH_GEX_REQUEST_OLD = 30
     KEXDH_GEX_GROUP   = 31
     KEXDH_GEX_INIT    = 32
     KEXDH_GEX_REPLY   = 33
@@ -47,29 +48,35 @@ module Net::SSH::Transport::Kex
 
       def read_and_handle_get_request
         buffer = connection.next_message
-        if buffer.type == KEXDH_GEX_REQUEST
+        case buffer.type
+        when KEXDH_GEX_REQUEST
           min_bits = buffer.read_long
           need_bits = buffer.read_long
           max_bits = buffer.read_long
-          @data[:min_bits] = min_bits
-          @data[:max_bits] = max_bits
-          min_bits = [min_bits,MINIMUM_BITS].max
-          max_bits = [max_bits,MAXIMUM_BITS].min
-          need_bits = [min_bits,need_bits].max
-          need_bits = [max_bits,need_bits].min
-          @data[:need_bits] = need_bits
-
-          dh = choose_dh min_bits, need_bits, max_bits
-
-          buffer = Net::SSH::Buffer.from(:byte,KEXDH_GEX_GROUP, :bignum, dh.p ,:bignum, dh.g)
-          connection.send_message(buffer)
-
-          dh_gen_key dh, need_bits # TODO is need_bits good
-
-          return dh
+        when KEXDH_GEX_REQUEST_OLD
+          need_bits = buffer.read_long
+          min_bits = MINIMUM_BITS
+          max_bits = MAXIMUM_BITS
         else
           raise Net::SSH::Exception, "expected KEXDH_GEX_REQUEST, got #{buffer.type}"
         end
+
+        @data[:min_bits] = min_bits
+        @data[:max_bits] = max_bits
+        min_bits = [min_bits,MINIMUM_BITS].max
+        max_bits = [max_bits,MAXIMUM_BITS].min
+        need_bits = [min_bits,need_bits].max
+        need_bits = [max_bits,need_bits].min
+        @data[:need_bits] = need_bits
+
+        dh = choose_dh min_bits, need_bits, max_bits
+
+        buffer = Net::SSH::Buffer.from(:byte,KEXDH_GEX_GROUP, :bignum, dh.p ,:bignum, dh.g)
+        connection.send_message(buffer)
+
+        dh_gen_key dh, need_bits # TODO is need_bits good
+
+        dh
       end
 
 
