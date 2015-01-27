@@ -1,5 +1,6 @@
 $:.push('./lib')
 ENABLE_KERBEROS = true
+ENABLE_FORWARD = true
 $:.push(ENV['GSSAPI_DIR'] || '../gssapi/lib/') if ENABLE_KERBEROS
 $:.push(ENV['NET_SSH_KERBEROS_DIR'] || '../net-ssh-kerberos/lib/') if ENABLE_KERBEROS
 require 'net/ssh'
@@ -38,6 +39,22 @@ class AuthLogic
   end
 end
 
+class DummyFwdConnection
+  include Net::SSH::Loggable
+
+  def initialize(host,options)
+    @options = options
+  end
+
+  def process
+  end
+
+  def connect
+  end
+
+  def handle(connection)
+  end
+end
 
 class FwdConnection
   include Net::SSH::Loggable
@@ -186,7 +203,11 @@ Thread.start do
       fwd_options[:listeners] = options[:listeners]
       fwd_host = 'localhost'
 
-      fwd_connection = FwdConnection.new(fwd_host,fwd_options)
+      if ENABLE_FORWARD
+        fwd_connection = FwdConnection.new(fwd_host,fwd_options)
+      else
+        fwd_connection = DummyFwdConnection.new(fwd_host,fwd_options)
+      end
       options[:auth_logic] = fwd_connection
       run_loop_hook = -> { fwd_connection.process }
       fwd_connection.connect

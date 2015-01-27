@@ -42,16 +42,10 @@ module Server
       connection.close
     end
 
-    def test_with_real_ssh_client
-      exit_status = 42
-
-      opts = _stdoptions("SRV")
-
+    def _ssh_async_reply_server(options,&block)
+      Thread.abort_on_exception = true
       server = TCPServer.new 0
       port,host = server.addr[1],server.addr[2]
-
-      Thread.abort_on_exception = true
-
       Thread.start do |th|
         client = server.accept
         server_session = Net::SSH::Transport::ServerSession.new(client,
@@ -59,7 +53,7 @@ module Server
             kex:['diffie-hellman-group-exchange-sha256'],
             hmac:['hmac-md5'],
             auth_logic:AuthLogic.new
-           }.merge(opts))
+           }.merge(options))
         server_session.run_loop do |connection|
           connection.on_open_channel('session') do |session, channel, packet|
             channel.extend(Net::SSH::Server::ChannelExtensions)
@@ -72,12 +66,22 @@ module Server
                 channel.send_reply(true)
                 opt[:want_reply] = false
               end
-              channel.send_data "reply #{command}\n"
+              reply = yield(command)
+              channel.send_data reply[:string]
               channel.send_eof_and_close
-              channel.send_channel_request('exit-status',:long,42)
+              channel.send_channel_request('exit-status',:long,reply[:exit_code])
             end
           end
         end
+      end
+      [port,host]
+    end
+
+    def test_with_real_ssh_client
+      exit_status = 42
+
+      port,host = _ssh_async_reply_server(_stdoptions("SRV")) do |command|
+        {exit_code:exit_status,string:"reply #{command}\n"}
       end
 
       sshopts = {LogLevel:'ERROR', UserKnownHostsFile:'/dev/null', StrictHostKeyChecking:'no',
@@ -90,7 +94,7 @@ module Server
       output, status = Open3.capture2(command)
 
       assert_equal "reply sleep 3 ; echo hello\n", output
-      assert_equal 42, status.exitstatus
+      assert_equal exit_status, status.exitstatus
     end
 
     def test_with_net_ssh_client
