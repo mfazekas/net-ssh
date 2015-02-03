@@ -24,6 +24,78 @@ module Net; module SSH; module Connection
   #     ssh.exec! "/etc/init.d/some_process start"
   #   end
   class Session
+
+    # Experimental EventLoop abstraction that 
+    # can be shared accross sessions TODO
+    class EventLoop
+      include Loggable
+
+      def initialize(logger=nil)
+        self.logger = logger
+        @sessions = []
+      end
+
+      def register(session)
+        @sessions << session
+      end
+
+      # process until timeout
+      def process(wait = nil)
+        ev_preprocesss
+        ev_select_and_postprocess(wait)
+      end
+
+      # process the event loop excluding some sessions
+      def process_only(session, wait = nil)
+        orig_sessions = @sessions
+        begin
+          @sessions = [session]
+          ev_preprocesss
+          ev_select_and_postprocess(wait)
+        ensure
+          @sessions = orig_sessions
+        end
+      end
+
+      def ev_preprocesss
+        @sessions.each(&:ev_preprocesss)
+      end
+
+      def ev_select_and_postprocess(wait)
+        owners = {}
+        r,w = [],[]
+        minwait = nil
+        @sessions.each do |session|
+          #require 'byebug' ; byebug
+          sr,sw,actwait = session.ev_do_calculate_rw_wait(wait)
+          minwait = actwait if (actwait && (minwait.nil? || actwait < minwait))
+          r.push(*sr)
+          w.push(*sw)
+          sr.each { |ri| owners[ri] = session }
+          sw.each { |wi| owners[wi] = session }
+        end
+
+        readers, writers, = Net::SSH::Compat.io_select(r, w, nil, minwait)
+
+        fired_sessions = {}
+
+        readers.each do |r|
+          session = owners[r]
+          (fired_sessions[session] ||= {r:[],w:[]})[:r] << r
+        end if readers
+        writers.each do |w|
+          session = owners[w]
+          (fired_sessions[session] ||= {r:[],w:[]})[:w] << w
+        end if writers
+
+        fired_sessions.each do |s,rw|
+          s.ev_do_handle_events(rw[:r],rw[:w])
+        end
+
+        @sessions.each { |s| s.ev_do_postprocess(fired_sessions.has_key?(s)) }
+      end
+    end
+
     include Constants, Loggable
 
     # Default IO.select timeout threshold
@@ -77,6 +149,12 @@ module Net; module SSH; module Connection
       @channel_open_handlers = {}
       @on_global_request = {}
       @properties = (options[:properties] || {}).dup
+      if options[:event_loop]
+        @event_loop = options[:event_loop]
+        @event_loop.register(self)
+      else
+        @event_loop = self
+      end
 
       @max_pkt_size = (options.has_key?(:max_pkt_size) ? options[:max_pkt_size] : 0x8000)
       @max_win_size = (options.has_key?(:max_win_size) ? options[:max_win_size] : 0x20000)
@@ -206,11 +284,8 @@ module Net; module SSH; module Connection
     def process(wait=nil, &block)
       return false unless preprocess(&block)
 
-      r = listeners.keys
-      w = r.select { |w2| w2.respond_to?(:pending_write?) && w2.pending_write? }
-      readers, writers, = Net::SSH::Compat.io_select(r, w, nil, io_select_wait(wait))
-
-      postprocess(readers, writers)
+      @event_loop.ev_select_and_postprocess(wait)
+      true
     end
 
     # This is called internally as part of #process. It dispatches any
@@ -218,19 +293,37 @@ module Net; module SSH; module Connection
     # for any active channels. If a block is given, it is invoked at the
     # start of the method and again at the end, and if the block ever returns
     # false, this method returns false. Otherwise, it returns true.
-    def preprocess
+    def preprocess(&block)
       return false if block_given? && !yield(self)
-      dispatch_incoming_packets
-      channels.each { |id, channel| channel.process unless channel.closing? }
+      @event_loop.ev_preprocesss
       return false if block_given? && !yield(self)
       return true
     end
 
-    # This is called internally as part of #process. It loops over the given
-    # arrays of reader IO's and writer IO's, processing them as needed, and
-    # then calls Net::SSH::Transport::Session#rekey_as_needed to allow the
-    # transport layer to rekey. Then returns true.
-    def postprocess(readers, writers)
+    # It dispatches any available incoming packets, and then runs
+    # Net::SSH::Connection::Channel#process for any active channels.
+    def ev_preprocesss
+      dispatch_incoming_packets
+      channels.each { |id, channel| channel.process unless channel.closing? }
+    end
+
+    # Returns the file descriptors we're interested in
+    def ev_do_calculate_rw_wait(wait)
+      r = listeners.keys
+      w = r.select { |w2| w2.respond_to?(:pending_write?) && w2.pending_write? }
+      [r,w,io_select_wait(wait)]
+    end
+
+    def ev_select_and_postprocess(wait)
+      r,w,actwait = @event_loop.ev_do_calculate_rw_wait(wait)
+      readers, writers, = Net::SSH::Compat.io_select(r, w, nil, actwait)
+
+      ev_do_handle_events(readers, writers)
+      was_timeout = readers.nil? && writers.nil?
+      ev_do_postprocess(!was_timeout)
+    end
+
+    def ev_do_handle_events(readers,writers)
       Array(readers).each do |reader|
         if listeners[reader]
           listeners[reader].call(reader)
@@ -245,11 +338,15 @@ module Net; module SSH; module Connection
       Array(writers).each do |writer|
         writer.send_pending
       end
+    end
 
-      @keepalive.send_as_needed(readers, writers)
+    # This is called internally as part of #process. It loops over the given
+    # arrays of reader IO's and writer IO's, processing them as needed, and
+    # then calls Net::SSH::Transport::Session#rekey_as_needed to allow the
+    # transport layer to rekey. Then returns true.
+    def ev_do_postprocess(was_events)
+      @keepalive.send_as_needed(! was_events)
       transport.rekey_as_needed
-
-      return true
     end
 
     # Send a global request of the given type. The +extra+ parameters must

@@ -56,7 +56,7 @@ class FwdConnection
     @options = options
     alogger = Logger.new(STDERR)
     alogger.level = Logger::DEBUG
-    alogger.level = Logger::WARN
+    #alogger.level = Logger::WARN
     alogger.formatter = proc { |severity, datetime, progname, msg| "[FWD] #{datetime}: #{msg}\n" }
     options[:logger] = alogger
     self.logger = alogger
@@ -122,10 +122,12 @@ class FwdConnection
       channel.on_request request_type do |channel,data,options|
         _fwd_channel(channel).on_data do |fwd_channel,data|
           #puts "#{request_type}: data from server => client"
+          debug { "data fwd -> :#{data}" }
           channel.send_data(data)
         end
         channel.on_data do |channel,data|
           #puts "#{request_type}: data from client => server"
+          debug { "data client-> :#{data}" }
           _fwd_channel(channel).send_data(data)
         end
         if options[:want_reply]
@@ -141,7 +143,9 @@ class FwdConnection
   end
 
   def process
+    debug { "before process "}
     @fwd_conn.process(nil) if @fwd_conn
+    debug { "after process "}
   end
 
   def handle(connection)
@@ -174,7 +178,7 @@ Thread.start do
       options[:kex] = ['diffie-hellman-group-exchange-sha256']
       options[:hmac] = ['hmac-md5']
       options[:auth_logic] = auth_logic
-      options[:listeners] = {}
+      #options[:listeners] = {}
       if ENABLE_KERBEROS
         options[:allowed_auth_methods] = ['gssapi-with-mic']
         options[:gss_server_host] = 'precise32.fazmic.com'
@@ -183,7 +187,7 @@ Thread.start do
       end
 
       fwd_options = {}
-      fwd_options[:listeners] = options[:listeners]
+      #fwd_options[:listeners] = options[:listeners]
       fwd_host = 'localhost'
 
       fwd_connection = FwdConnection.new(fwd_host,fwd_options)

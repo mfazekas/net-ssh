@@ -33,8 +33,8 @@ class Keepalive
     (options[:keepalive_maxcount] || 3).to_i
   end
 
-  def send_as_needed(readers, writers)
-    return unless readers.nil? && writers.nil?
+  def send_as_needed(was_timeout)
+    return unless was_timeout
     return unless should_send?
     info { "sending keepalive #{@unresponded_keepalive_count}" }
 

@@ -320,7 +320,7 @@ module Net; module SSH; module Connection
     # sends data if possible
     def _flush
       process
-      connection.process
+      #connection.process
     end
 
     # Registers a callback to be invoked when data packets are received by the
