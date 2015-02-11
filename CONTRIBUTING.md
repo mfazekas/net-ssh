@@ -1,6 +1,18 @@
 
 ## TODO this is work in progress
 
+## Reporting bug with net-ssh
+
+Please set verbosity to ```:debug``` also please include as much information as possible to reproduce the issue.
+
+### Capistrano
+
+Use ```ssh_options``` to add the verbose flag.
+
+```ruby
+set :ssh_options, { :verbose => :debug }
+```
+
 ## Testing net-ssh
 
 Net-ssh is used by capistrano, chef, puppet and vagrant which means indirectly hundreds of thousands of people are potentially affected by changes in net-ssh.
