@@ -207,6 +207,10 @@ module Net; module SSH; module Connection
       transport.shutdown!
     end
 
+    def _flush
+      transport.socket.send_pending if transport.socket.pending_write?
+    end
+
     # preserve a reference to Kernel#loop
     alias :loop_forever :loop
 

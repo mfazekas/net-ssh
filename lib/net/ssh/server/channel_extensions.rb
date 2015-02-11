@@ -1,9 +1,13 @@
 module Net ; module SSH ; module Server
   module ChannelExtensions
 
-    def send_eof_and_close
+    def send_eof
       eof!
       _flush
+    end
+
+    def send_eof_and_close
+      send_eof
       close
     end
 
