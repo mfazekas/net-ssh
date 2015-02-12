@@ -8,9 +8,20 @@ rvm:
   - jruby-19mode
   - 1.8.7
 
+before_install: |
+  sudo apt-get install -qq -y slirp aufs-tools cgroup-lite
+  sudo mkdir -p /var/lib/docker
+  curl -sLo linux https://github.com/jpetazzo/sekexe/raw/master/uml
+  chmod +x linux
+  curl -sLo docker https://get.docker.io/builds/Linux/x86_64/docker-1.4.1
+  chmod +x docker
+  chmod +x ./vagrant/travis.sh
+
 install: gem install test-unit mocha
 
-script: rake test
+script: |
+  rake test
+  ./vagrant/travis.sh  
 
 matrix:
   allow_failures:
