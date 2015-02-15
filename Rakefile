@@ -37,6 +37,9 @@ begin
       s.add_dependency 'jruby-pageant', ">=1.1.1"
     end
 
+    s.add_dependency 'rbnacl-libsodium', ">=1.0.2"
+    s.add_dependency 'rbnacl', ">=3.1.2"
+
     s.add_development_dependency 'test-unit'
     s.add_development_dependency 'mocha'
 
@@ -77,4 +80,13 @@ Rake::TestTask.new do |t|
   if RUBY_VERSION < '1.9.0'
     t.ruby_opts << '-rubygems'
   end
+end
+
+Rake::TestTask.new(:'integration-test') do |t|
+  t.libs = ["lib", "test/integration"]
+  if RUBY_VERSION < '1.9.0'
+    t.ruby_opts << '-rubygems'
+  end
+  t.pattern = 'test/integration/test_*.rb'
+
 end
