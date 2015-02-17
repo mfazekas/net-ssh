@@ -70,7 +70,7 @@ module Net
           end
 
           def get_max_retries
-            (session.transport.options||{})[:number_of_password_prompts] || NUMBER_OF_PASSWORD_PROMPTS
+            (session.options||{})[:number_of_password_prompts] || NUMBER_OF_PASSWORD_PROMPTS
           end
         end
 
