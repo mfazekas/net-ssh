@@ -122,6 +122,10 @@ module Net::SSH::Transport::Kex
                               result[:key_blob]
           if data[:min_bits] == -1 || data[:max_bits] == -1
             response.write_long data[:need_bits]
+          else
+            response.write_long data[:min_bits],
+                                data[:need_bits],
+                                data[:max_bits]
           end
           response.write_bignum dh.p, dh.g, result[:client_pubkey],
                               result[:server_dh_pubkey],
