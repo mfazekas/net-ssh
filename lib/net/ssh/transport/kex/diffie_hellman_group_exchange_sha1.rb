@@ -71,10 +71,14 @@ module Net::SSH::Transport::Kex
 
         dh = choose_dh min_bits, need_bits, max_bits
 
-        buffer = Net::SSH::Buffer.from(:byte,KEXDH_GEX_GROUP, :bignum, dh.p ,:bignum, dh.g)
-        connection.send_message(buffer)
+        outbuffer = Net::SSH::Buffer.from(:byte,KEXDH_GEX_GROUP, :bignum, dh.p ,:bignum, dh.g)
+        connection.send_message(outbuffer)
 
         dh_gen_key dh, need_bits # TODO is need_bits good
+
+        if buffer.type == KEXDH_GEX_REQUEST_OLD
+          @data[:min_bits],@data[:max_bits] = [-1,-1]
+        end
 
         dh
       end
@@ -116,9 +120,9 @@ module Net::SSH::Transport::Kex
                               data[:server_algorithm_packet],
                               data[:client_algorithm_packet],
                               result[:key_blob]
-          response.write_long data[:min_bits],
-                              data[:need_bits],
-                              data[:max_bits]
+          if data[:min_bits] == -1 || data[:max_bits] == -1
+            response.write_long data[:need_bits]
+          end
           response.write_bignum dh.p, dh.g, result[:client_pubkey],
                               result[:server_dh_pubkey],
                               result[:shared_secret]
