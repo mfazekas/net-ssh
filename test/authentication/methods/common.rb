@@ -19,6 +19,9 @@ module Authentication; module Methods
           def sess.next_message
             transport.next_message
           end
+          def sess.options
+            transport.options
+          end
           sess
         end
       end
