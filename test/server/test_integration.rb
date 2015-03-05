@@ -77,7 +77,18 @@ module Server
       [port,host]
     end
 
+    def skip_jruby?
+      if defined?(JRUBY_VERSION)
+        puts "Skipping integration tests for JRuby"
+        true
+      else
+        false
+      end
+    end
+
     def test_with_real_ssh_client
+      return if skip_jruby?
+
       exit_status = 42
 
       port,host = _ssh_async_reply_server(_stdoptions("SRV")) do |command|
@@ -98,6 +109,8 @@ module Server
     end
 
     def test_with_net_ssh_client
+      return if skip_jruby?
+
       server = TCPServer.new 0
       port,host = server.addr[1],server.addr[2]
 
@@ -133,6 +146,8 @@ module Server
     end
 
     def test_with_net_ssh_client_and_pwd
+      return if skip_jruby?
+
       server = TCPServer.new 0
       port,host = server.addr[1],server.addr[2]
 
