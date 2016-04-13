@@ -1,5 +1,4 @@
 require 'socket'
-require 'timeout'
 
 require 'net/ssh/errors'
 require 'net/ssh/loggable'
@@ -63,14 +62,15 @@ module Net; module SSH; module Transport
       @options = options
 
       debug { "establishing connection to #{@host}:#{@port}" }
-      factory = options[:proxy] || TCPSocket
-      @socket = timeout(options[:timeout] || 0) {
-        case
-        when options[:proxy] then factory.open(@host, @port, options)
-        when @bind_address.nil? then factory.open(@host, @port)
-        else factory.open(@host, @port, @bind_address)
+
+      @socket =
+        if (factory = options[:proxy])
+          factory.open(@host, @port, options)
+        else
+          Socket.tcp(@host, @port, @bind_address, nil,
+                     connect_timeout: options[:timeout])
         end
-      }
+
       @socket.extend(PacketStream)
       @socket.logger = @logger
 
@@ -81,10 +81,19 @@ module Net; module SSH; module Transport
       @host_key_verifier = select_host_key_verifier(options[:paranoid])
 
 
-      @server_version = timeout(options[:timeout] || 0) { ServerVersion.new(socket, logger) }
+      @server_version = ServerVersion.new(socket, logger, options[:timeout])
 
       @algorithms = Algorithms.new(self, options)
       wait { algorithms.initialized? }
+    rescue Errno::ETIMEDOUT
+      raise Net::SSH::ConnectionTimeout
+    end
+
+    def host_keys
+      @host_keys ||= begin
+        known_hosts = options.fetch(:known_hosts, KnownHosts)
+        known_hosts.search_for(options[:host_key_alias] || host_as_string, options)
+      end
     end
 
     # Returns the host (and possibly IP address) in a format compatible with

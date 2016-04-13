@@ -1,4 +1,106 @@
+=== 4.0.0.alpha3
 
+* added max_select_wait_time [Eugene Kenny]
+
+=== 4.0.0.alpha2
+
+* when transport closes we're cleaning up channels [Miklos Fazekas]
+
+=== 4.0.0.alpha1
+
+* ed25519 key support [Miklos Fazekas]
+* removed camellia [Miklos Fazekas]
+
+=== 3.1.0
+=== 3.1.0.rc1
+
+* fix Secure#verify [Jean Boussier]
+* use the smallest of don't spend longer time than keepalive if it's configured [Eugene Kenny]
+
+=== 3.1.0.beta3
+
+* forward/on_open_failed should stop listning closed socket otherwise it locks #269 [Miklos Fazekas,Scott McGillivray]
+* fix incorrect pattern handling in config files #310 [Miklos Fazekas]
+
+=== 3.1.0.beta2
+
+* trying to execute something on a not yet opend channel throws nicer messag [Miklos Fazekas]
+* calling close on a not opened channel marks the channel for close [Miklos Fazekas]
+* read keepalive configuration from ssh config files [Miklos Fazekas]
+* send client version on hadshake before waiting for server to reduce handshake time [Miklos Fazekas]
+* allow custom Net::SSH::KnownHosts implementations [Jean Boussier]
+* memoize known host so we only search it once per session [Jean Boussier, Miklos Fazekas]
+
+=== 3.0.2
+=== 3.0.2.rc1
+
+* fixed rare WaitWritable error with proxy commands [Miklos Fazkas, Andre Meij]]
+* if Net::SSH.start user is nil and config has no entry we default to Etc.getlogin
+* Bugfix: CHANNEL_CLOSE was sent before draining ouput buffer #280 [Christopher F. Auston]
+
+=== 3.0.1
+=== 3.0.1.rc1
+
+* Breaking change from 2.* series: exec! without block now returns empty string instread of nil if command has no output [https://github.com/net-ssh/net-ssh/pull/273]
+* Support remote_user as %r in proxy commands [Dominic Scheirlinck]
+* Raise Net::SSH::ConnectionTimeout from connection timeout [Carl Hoerberg]
+
+=== 3.0.0.rc1
+
+* SemVer: Major version change because of dropping of ruby 1.9
+
+=== 2.10.1.rc2
+
+* Win: Use fiddle on ruby 2.1 too [Charlie Savage]
+
+=== 2.10.1.rc1
+
+* Added ruby 2.0 requirement to gemspec [Alex Schultz]
+
+=== 2.10.0
+
+=== 2.10.0-beta2
+
+* Fix :passphrase option with :non_interactive [Jeremy Stanley]
+* Use Socket.tcp with connect_timeout instead of Timeout::timeout [Carl Hörberg]
+* Support for hostname hashes [Jef Mathiot]
+* Ruby 1.9.3 is no longer supported but should moslty work expect for stuff like connect_timeout
+
+=== 2.10.0-beta1
+
+* Fix could not parse PKey error. [Andrey Voronkov]
+* Workaround for threading issue in MRI + singleton method declaration [Matt Brictson]
+* Configuration change: we no longer append all supported algorithms, this is so you can exclude insecure algorithms. If you want to use the old behaviour specify append_all_supported_algorithms => true [voidus, mfazekas]
+* New configuration option: :non_interactive => true in case you prefer an authmethod to fail rather than prompt. [mfazekas]
+* Configuration change: password will now ask for password up to the :number_of_password_prompts times. If you want the
+2.9.1 behaviour of never asking password please set number_of_password_prompts to 0.
+
+=== 2.9.4-beta1
+
+* Use sysread and syswrite on Windows instead of read_nonblock and write [marc-etienne]
+* Windows/peagant: use fiddle on ruby 2.2+/windows [Charlie Savage]
+* Check if ssh key is a file [kiela]
+
+=== 2.9.3
+
+=== 2.9.2-rc3
+
+* Remove advertised algorithms that were not working (curve25519-sha256@libssh.org) [mfazekas]
+
+=== 2.9.2-rc2
+
+* number_of_password_prompts is now accepted as ssh option, by setting it 0 net-ssh will not ask for password for password auth as with previous versions [mfazekas]
+
+=== 2.9.2-rc1
+
+* Documentation fixes and refactoring to keepalive [detiber, mfazekas]
+
+=== 2.9.2-beta
+
+* Remove advertised algorithms that were not working (ssh-rsa-cert-* *ed25519 acm*-gcm@openssh.com) [mfazekas]
+* Unkown algorithms now ignored instead of failed [mfazekas]
+* Configuration change: Asks for password with password auth (up to number_of_password_prompts) [mfazekas]
+* Removed warnings [amatsuda]
 
 === 2.9.1 / 13 May 2014
 

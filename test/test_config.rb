@@ -1,8 +1,9 @@
 require 'common'
 require 'net/ssh/config'
 require 'pathname'
+require 'tempfile'
 
-class TestConfig < Test::Unit::TestCase
+class TestConfig < NetSSHTest
   def test_home_should_be_absolute_path
     assert Pathname.new(ENV['HOME']).absolute?
   end
@@ -40,6 +41,33 @@ class TestConfig < Test::Unit::TestCase
     assert_equal 9876, config['port']
     assert !config.key?('compression')
   end
+
+  def test_load_with_pattern_does_match
+    data = %q{
+      Host test.*
+        Port 1234
+        Compression no
+    }
+    with_config_from_data data do |f|
+      config = Net::SSH::Config.load(f, "test.host")
+      assert_equal 1234, config['port']
+    end
+  end
+
+  def test_load_with_regex_chars
+    data = %q{
+      Host |
+        Port 1234
+        Compression no
+    }
+    with_config_from_data data do |f|
+      config = Net::SSH::Config.load(f, "test.host")
+      assert_equal nil, config['port']
+      config = Net::SSH::Config.load(f, "|")
+      assert_equal 1234, config['port']
+    end
+  end
+
 
   def test_for_should_load_all_files_and_translate_to_net_ssh_options
     config = Net::SSH::Config.for("test.host", [config(:exact_match), config(:wild_cards)])
@@ -93,7 +121,10 @@ class TestConfig < Test::Unit::TestCase
       'port'                    => 1234,
       'pubkeyauthentication'    => true,
       'rekeylimit'              => 1024,
-      'sendenv'                 => "LC_*"
+      'sendenv'                 => "LC_*",
+      'numberofpasswordprompts' => '123',
+      'serveraliveinterval'     => '2',
+      'serveralivecountmax'     => '4'
     }
 
     net_ssh = Net::SSH::Config.translate(open_ssh)
@@ -111,6 +142,10 @@ class TestConfig < Test::Unit::TestCase
     assert_equal 1024,      net_ssh[:rekey_limit]
     assert_equal "127.0.0.1", net_ssh[:bind_address]
     assert_equal [/^LC_.*$/], net_ssh[:send_env]
+    assert_equal 123,       net_ssh[:number_of_password_prompts]
+    assert_equal 4,         net_ssh[:keepalive_maxcount]
+    assert_equal 2,         net_ssh[:keepalive_interval]
+    assert_equal true,         net_ssh[:keepalive]
   end
 
   def test_translate_should_turn_off_authentication_methods
@@ -174,7 +209,15 @@ class TestConfig < Test::Unit::TestCase
     config = Net::SSH::Config.for("test.host", [config(:empty), config(:auth_on), config(:auth_off)])
     assert_equal %w(hostbased keyboard-interactive none password publickey), config[:auth_methods].sort
   end
-  
+
+  def test_config_for_when_HOME_is_null_should_not_raise
+    with_home_env(nil) do
+      with_restored_default_files do
+        Net::SSH::Config.for("test.host")
+      end
+    end
+  end
+
   def test_load_with_plus_sign_hosts
     config = Net::SSH::Config.load(config(:host_plus), "test.host")
     assert config['compression']
@@ -211,9 +254,33 @@ class TestConfig < Test::Unit::TestCase
     assert_equal [/^GIT_.*$/, /^LANG$/, /^LC_.*$/], net_ssh[:send_env]
   end
 
+  def test_load_with_remote_user
+    config = Net::SSH::Config.load(config(:proxy_remote_user), "behind-proxy")
+    net_ssh = Net::SSH::Config.translate(config)
+    assert net_ssh[:proxy]
+  end
+
   private
+
+    def with_home_env(value,&block)
+      env_home_before = ENV['HOME']
+      begin
+        ENV['HOME'] = value
+        yield
+      ensure
+        ENV['HOME'] = env_home_before
+      end
+    end
 
     def config(name)
       "test/configs/#{name}"
+    end
+
+    def with_config_from_data(data, &block)
+      Tempfile.open('config') do |f|
+        f.write(data)
+        f.close
+        yield(f.path)
+      end
     end
 end

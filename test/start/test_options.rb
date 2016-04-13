@@ -2,7 +2,7 @@ require 'common'
 require 'net/ssh'
 
 module NetSSH
-  class TestStartOptions < Test::Unit::TestCase
+  class TestStartOptions < NetSSHTest
     def setup
       authentication_session = mock('authentication_session')
       authentication_session.stubs(:authenticate).returns(true)
@@ -28,6 +28,27 @@ module NetSSH
     def test_start_should_accept_send_env_option
       assert_nothing_raised do
         options = { :send_env => [ /^LC_.*$/, "LANG" ] }
+        Net::SSH.start('localhost', 'testuser', options)
+      end
+    end
+
+    def test_start_should_accept_number_of_password_prompts_option
+      assert_nothing_raised do
+        options = { :number_of_password_prompts => 2 }
+        Net::SSH.start('localhost', 'testuser', options)
+      end
+    end
+
+    def test_start_should_accept_non_interactive_option
+      assert_nothing_raised do
+        options = { :non_interactive => true }
+        Net::SSH.start('localhost', 'testuser', options)
+      end
+    end
+
+    def test_start_should_accept_remote_user_option
+      assert_nothing_raised do
+        options = { :remote_user => 'foo' }
         Net::SSH.start('localhost', 'testuser', options)
       end
     end

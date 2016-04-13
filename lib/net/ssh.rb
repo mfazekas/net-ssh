@@ -3,6 +3,7 @@
 ENV['HOME'] ||= ENV['HOMEPATH'] ? "#{ENV['HOMEDRIVE']}#{ENV['HOMEPATH']}" : Dir.pwd
 
 require 'logger'
+require 'etc'
 
 require 'net/ssh/config'
 require 'net/ssh/errors'
@@ -10,6 +11,7 @@ require 'net/ssh/loggable'
 require 'net/ssh/transport/session'
 require 'net/ssh/authentication/session'
 require 'net/ssh/connection/session'
+require 'net/ssh/prompt'
 
 module Net
 
@@ -62,13 +64,14 @@ module Net
     # Net::SSH.start for a description of each option.
     VALID_OPTIONS = [
       :auth_methods, :bind_address, :compression, :compression_level, :config,
-      :encryption, :forward_agent, :hmac, :host_key,
-      :keepalive, :keepalive_interval, :kex, :keys, :key_data,
+      :encryption, :forward_agent, :hmac, :host_key, :remote_user,
+      :keepalive, :keepalive_interval, :keepalive_maxcount, :kex, :keys, :key_data,
       :languages, :logger, :paranoid, :password, :port, :proxy,
       :rekey_blocks_limit,:rekey_limit, :rekey_packet_limit, :timeout, :verbose,
-      :global_known_hosts_file, :user_known_hosts_file, :host_key_alias,
+      :known_hosts, :global_known_hosts_file, :user_known_hosts_file, :host_key_alias,
       :host_name, :user, :properties, :passphrase, :keys_only, :max_pkt_size,
-      :max_win_size, :send_env, :use_agent
+      :max_win_size, :send_env, :use_agent, :number_of_password_prompts,
+      :append_supported_algorithms, :non_interactive, :password_prompt
     ]
 
     # The standard means of starting a new SSH connection. When used with a
@@ -113,6 +116,8 @@ module Net
     # * :encryption => the encryption cipher (or ciphers) to use
     # * :forward_agent => set to true if you want the SSH agent connection to
     #   be forwarded
+    # * :known_hosts => a custom object holding known hosts records.
+    #   It must implement #search_for and add in a similiar manner as KnownHosts.
     # * :global_known_hosts_file => the location of the global known hosts
     #   file. Set to an array if you want to specify multiple global known
     #   hosts files. Defaults to %w(/etc/ssh/ssh_known_hosts /etc/ssh/ssh_known_hosts2).
@@ -125,11 +130,13 @@ module Net
     #   specified in an SSH configuration file. It lets you specify an
     #   "alias", similarly to adding an entry in /etc/hosts but without needing
     #   to modify /etc/hosts.
-    #   :keepalive => set to +true+ to send a keepalive packet to the SSH server
+    # * :keepalive => set to +true+ to send a keepalive packet to the SSH server
     #   when there's no traffic between the SSH server and Net::SSH client for
     #   the keepalive_interval seconds. Defaults to +false+.
-    #   :keepalive_interval => the interval seconds for keepalive.
+    # * :keepalive_interval => the interval seconds for keepalive.
     #   Defaults to +300+ seconds.
+    # * :keepalive_maxcount => the maximun number of keepalive packet miss allowed.
+    #   Defaults to 3
     # * :kex => the key exchange algorithm (or algorithms) to use
     # * :keys => an array of file names of private keys to use for publickey
     #   and hostbased authentication
@@ -146,7 +153,11 @@ module Net
     # * :max_win_size => maximum size we tell the other side that is supported for
     #   the window.
     # * :paranoid => either false, true, :very, or :secure specifying how
-    #   strict host-key verification should be (in increasing order here)
+    #   strict host-key verification should be (in increasing order here).
+    #   You can also provide an own Object which responds to +verify+. The argument
+    #   given to +verify+ is a hash consisting of the +:key+, the +:key_blob+,
+    #   the +:fingerprint+ and the +:session+. Returning true accepts the host key,
+    #   returning false declines it and closes the connection.
     # * :passphrase => the passphrase to use when loading a private key (default
     #   is +nil+, for no passphrase)
     # * :password => the password to use to login
@@ -163,16 +174,30 @@ module Net
     # * :user => the user name to log in as; this overrides the +user+
     #   parameter, and is primarily only useful when provided via an SSH
     #   configuration file.
+    # * :remote_user => used for substitution into the '%r' part of a ProxyCommand
     # * :user_known_hosts_file => the location of the user known hosts file.
     #   Set to an array to specify multiple user known hosts files.
     #   Defaults to %w(~/.ssh/known_hosts ~/.ssh/known_hosts2).
     # * :use_agent => Set false to disable the use of ssh-agent. Defaults to 
     #   true
+    # * :non_interactive => set to true if your app is non interactive and prefers
+    #   authentication failure vs password prompt
     # * :verbose => how verbose to be (Logger verbosity constants, Logger::DEBUG
     #   is very verbose, Logger::FATAL is all but silent). Logger::FATAL is the
     #   default. The symbols :debug, :info, :warn, :error, and :fatal are also
     #   supported and are translated to the corresponding Logger constant.
-    def self.start(host, user, options={}, &block)
+    # * :append_all_supported_algorithms => set to +true+ to append all supported
+    #   algorithms by net-ssh. Was the default behaviour until 2.10
+    # * :number_of_password_prompts => Number of prompts for the password
+    #   authentication method defaults to 3 set to 0 to disable prompt for
+    #   password auth method
+    # * :non_interactive => non interactive applications should set it to true
+    #   to prefer failing a password/etc auth methods vs asking for password
+    # * :password_prompt => a custom prompt object with ask method. See Net::SSH::Prompt
+    #
+    # If +user+ parameter is nil it defaults to USER from ssh_config, or
+    # local username
+    def self.start(host, user=nil, options={}, &block)
       invalid_options = options.keys - VALID_OPTIONS
       if invalid_options.any?
         raise ArgumentError, "invalid option(s): #{invalid_options.join(', ')}"
@@ -186,6 +211,12 @@ module Net
         options[:logger] = Logger.new(STDERR)
         options[:logger].level = Logger::FATAL
       end
+
+      if options[:non_interactive]
+        options[:number_of_password_prompts] = 0
+      end
+
+      options[:password_prompt] ||= Prompt.default(options)
 
       if options[:verbose]
         options[:logger].level = case options[:verbose]
@@ -202,7 +233,7 @@ module Net
       transport = Transport::Session.new(host, options)
       auth = Authentication::Session.new(transport, options)
 
-      user = options.fetch(:user, user)
+      user = options.fetch(:user, user) || Etc.getlogin
       if auth.authenticate("ssh-connection", user, options[:password])
         connection = Connection::Session.new(transport, options)
         if block_given?

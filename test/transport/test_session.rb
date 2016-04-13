@@ -11,7 +11,7 @@ end
 
 module Transport
 
-  class TestSession < Test::Unit::TestCase
+  class TestSession < NetSSHTest
     include Net::SSH::Transport::Constants
 
     def test_constructor_defaults
@@ -315,7 +315,7 @@ module Transport
       def session(options={})
         @session ||= begin
           host = options.delete(:host) || "net.ssh.test"
-          TCPSocket.stubs(:open).with(host, options[:port] || 22).returns(socket)
+          Socket.stubs(:tcp).with(host, options[:port] || 22, nil, nil, { connect_timeout: options[:timeout] }).returns(socket)
           Net::SSH::Transport::ServerVersion.stubs(:new).returns(server_version)
           Net::SSH::Transport::Algorithms.stubs(:new).returns(algorithms)
 

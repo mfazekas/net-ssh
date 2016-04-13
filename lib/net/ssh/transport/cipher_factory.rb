@@ -21,12 +21,6 @@ module Net; module SSH; module Transport
       "arcfour256"                  => "rc4",
       "arcfour512"                  => "rc4",
       "arcfour"                     => "rc4",
-      "camellia128-cbc"             => "camellia-128-cbc",
-      "camellia192-cbc"             => "camellia-192-cbc",
-      "camellia256-cbc"             => "camellia-256-cbc",
-      "camellia128-cbc@openssh.org" => "camellia-128-cbc",
-      "camellia192-cbc@openssh.org" => "camellia-192-cbc",
-      "camellia256-cbc@openssh.org" => "camellia-256-cbc",
 
       "3des-ctr"                    => "des-ede3",
       "blowfish-ctr"                => "bf-ecb",
@@ -34,15 +28,6 @@ module Net; module SSH; module Transport
       "aes192-ctr"                  => "aes-192-ecb",
       "aes128-ctr"                  => "aes-128-ecb",
       "cast128-ctr"                 => "cast5-ecb",
-      "camellia128-ctr"             => "camellia-128-ecb",
-      "camellia192-ctr"             => "camellia-192-ecb",
-      "camellia256-ctr"             => "camellia-256-ecb",
-      "camellia128-ctr@openssh.org" => "camellia-128-ecb",
-      "camellia192-ctr@openssh.org" => "camellia-192-ecb",
-      "camellia256-ctr@openssh.org" => "camellia-256-ecb",
-
-      "aes256-gcm@openssh.com"      => "aes-256-gcm",
-      "aes128-gcm@openssh.com"      => "aes-128-gcm",
 
       "none"                        => "none",
     }
@@ -79,12 +64,11 @@ module Net; module SSH; module Transport
       cipher.padding = 0
 
       cipher.extend(Net::SSH::Transport::CTR) if (name =~ /-ctr(@openssh.org)?$/)
-
-      cipher.iv      = Net::SSH::Transport::KeyExpander.expand_key(cipher.iv_len, options[:iv], options) if ossl_name != "rc4"
+      cipher.iv = Net::SSH::Transport::KeyExpander.expand_key(cipher.iv_len, options[:iv], options) if ossl_name != "rc4"
 
       key_len = KEY_LEN_OVERRIDE[name] || cipher.key_len
       cipher.key_len = key_len
-      cipher.key     = Net::SSH::Transport::KeyExpander.expand_key(key_len, options[:key], options)
+      cipher.key = Net::SSH::Transport::KeyExpander.expand_key(key_len, options[:key], options)
       cipher.update(" " * 1536) if (ossl_name == "rc4" && name != "arcfour")
 
       return cipher
@@ -94,15 +78,21 @@ module Net; module SSH; module Transport
     # block-size ] for the named cipher algorithm. If the cipher
     # algorithm is unknown, or is "none", 0 is returned for both elements
     # of the tuple.
-    def self.get_lengths(name)
+    # if :iv_len option is supplied the third return value will be ivlen
+    def self.get_lengths(name, options = {})
       ossl_name = SSH_TO_OSSL[name]
-      return [0, 0] if ossl_name.nil? || ossl_name == "none"
+      if ossl_name.nil? || ossl_name == "none"
+        result = [0, 0]
+        result << 0 if options[:iv_len]
+      else
+        cipher = OpenSSL::Cipher::Cipher.new(ossl_name)
+        key_len = KEY_LEN_OVERRIDE[name] || cipher.key_len
+        cipher.key_len = key_len
 
-      cipher = OpenSSL::Cipher::Cipher.new(ossl_name)
-      key_len = KEY_LEN_OVERRIDE[name] || cipher.key_len
-      cipher.key_len = key_len
-      
-      return [key_len, ossl_name=="rc4" ? 8 : cipher.block_size]
+        result = [key_len, ossl_name=="rc4" ? 8 : cipher.block_size]
+        result << cipher.iv_len if options[:iv_len]
+      end
+      result
     end
   end
 

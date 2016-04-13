@@ -8,7 +8,7 @@ module Net; module SSH; module Proxy
   #
   #   require 'net/ssh/proxy/http'
   #
-  #   proxy = Net::SSH::Proxy::HTTP.new('proxy.host', proxy_port)
+  #   proxy = Net::SSH::Proxy::HTTP.new('proxy_host', proxy_port)
   #   Net::SSH.start('host', 'user', :proxy => proxy) do |ssh|
   #     ...
   #   end
@@ -16,7 +16,7 @@ module Net; module SSH; module Proxy
   # If the proxy requires authentication, you can pass :user and :password
   # to the proxy's constructor:
   #
-  #   proxy = Net::SSH::Proxy::HTTP.new('proxy.host', proxy_port,
+  #   proxy = Net::SSH::Proxy::HTTP.new('proxy_host', proxy_port,
   #      :user => "user", :password => "password")
   #
   # Note that HTTP digest authentication is not supported; Basic only at
@@ -48,8 +48,9 @@ module Net; module SSH; module Proxy
 
     # Return a new socket connected to the given host and port via the
     # proxy that was requested when the socket factory was instantiated.
-    def open(host, port, connection_options = nil)
-      socket = TCPSocket.new(proxy_host, proxy_port)
+    def open(host, port, connection_options)
+      socket = Socket.tcp(proxy_host, proxy_port, nil, nil,
+                          connect_timeout: connection_options[:timeout])
       socket.write "CONNECT #{host}:#{port} HTTP/1.0\r\n"
 
       if options[:user]

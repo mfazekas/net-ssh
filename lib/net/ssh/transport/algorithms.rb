@@ -33,23 +33,13 @@ module Net; module SSH; module Transport
                          aes192-cbc aes256-cbc rijndael-cbc@lysator.liu.se
                          idea-cbc none arcfour128 arcfour256 arcfour
                          aes128-ctr aes192-ctr aes256-ctr
-                         camellia128-cbc camellia192-cbc camellia256-cbc
-                         camellia128-cbc@openssh.org
-                         camellia192-cbc@openssh.org
-                         camellia256-cbc@openssh.org
-                         camellia128-ctr camellia192-ctr camellia256-ctr
-                         camellia128-ctr@openssh.org
-                         camellia192-ctr@openssh.org
-                         camellia256-ctr@openssh.org
                          cast128-ctr blowfish-ctr 3des-ctr
-                         aes256-gcm@openssh.com aes128-gcm@openssh.com
                         ),
+
       :hmac        => %w(hmac-sha1 hmac-md5 hmac-sha1-96 hmac-md5-96
                          hmac-ripemd160 hmac-ripemd160@openssh.com
                          hmac-sha2-256 hmac-sha2-512 hmac-sha2-256-96
-                         hmac-sha2-512-96 none
-                         hmac-sha2-512-etm@openssh.com hmac-sha2-256-etm@openssh.com
-                         umac-128-etm@openssh.com),
+                         hmac-sha2-512-96 none),
 
       :compression => %w(none zlib@openssh.com zlib),
       :language    => %w() 
@@ -57,13 +47,10 @@ module Net; module SSH; module Transport
     if defined?(OpenSSL::PKey::EC)
       ALGORITHMS[:host_key] += %w(ecdsa-sha2-nistp256
                                   ecdsa-sha2-nistp384
-                                  ecdsa-sha2-nistp521
-                                  ssh-ed25519-cert-v01@openssh.com
-                                  ssh-ed25519)
+                                  ecdsa-sha2-nistp521)
       ALGORITHMS[:kex] += %w(ecdh-sha2-nistp256
                              ecdh-sha2-nistp384
-                             ecdh-sha2-nistp521
-                             curve25519-sha256@libssh.org)
+                             ecdh-sha2-nistp521)
     end
 
     # The underlying transport layer session that supports this object
@@ -221,13 +208,17 @@ module Net; module SSH; module Transport
           # apply the preferred algorithm order, if any
           if options[algorithm]
             algorithms[algorithm] = Array(options[algorithm]).compact.uniq
-            invalid = algorithms[algorithm].detect { |name| !ALGORITHMS[algorithm].include?(name) }
-            raise NotImplementedError, "unsupported #{algorithm} algorithm: `#{invalid}'" if invalid
+            unsupported = []
+            algorithms[algorithm].select! do |name|
+              supported = ALGORITHMS[algorithm].include?(name)
+              unsupported << name unless supported
+              supported
+            end
+            lwarn { "unsupported #{algorithm} algorithm: `#{unsupported}'" } unless unsupported.empty?
 
-            # make sure all of our supported algorithms are tacked onto the
-            # end, so that if the user tries to give a list of which none are
-            # supported, we can still proceed.
-            list.each { |name| algorithms[algorithm] << name unless algorithms[algorithm].include?(name) }
+            if options[:append_all_supported_algorithms]
+              list.each { |name| algorithms[algorithm] << name unless algorithms[algorithm].include?(name) }
+            end
           end
         end
 
@@ -243,7 +234,7 @@ module Net; module SSH; module Transport
           # make sure the host keys are specified in preference order, where any
           # existing known key for the host has preference.
 
-          existing_keys = KnownHosts.search_for(options[:host_key_alias] || session.host_as_string, options)
+          existing_keys = session.host_keys
           host_keys = existing_keys.map { |key| key.ssh_type }.uniq
           algorithms[:host_key].each do |name|
             host_keys << name unless host_keys.include?(name)

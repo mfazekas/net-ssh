@@ -1,51 +1,33 @@
+# coding: UTF-8
+#
+# Also in your terminal environment run:
+#   $ export LANG=en_US.UTF-8
+#   $ export LANGUAGE=en_US.UTF-8
+#   $ export LC_ALL=en_US.UTF-8
+
 require "rubygems"
 require "rake"
 require "rake/clean"
+require "bundler/gem_tasks"
+
 require "rdoc/task"
+
+
+desc "When releasing make sure NET_SSH_BUILDGEM_SIGNED is set"
+task :check_NET_SSH_BUILDGEM_SIGNED do
+  raise "NET_SSH_BUILDGEM_SIGNED should be set to release" unless ENV['NET_SSH_BUILDGEM_SIGNED']
+end
+
+Rake::Task[:release].enhance [:check_NET_SSH_BUILDGEM_SIGNED]
+Rake::Task[:release].prerequisites.unshift(:check_NET_SSH_BUILDGEM_SIGNED)
+
 
 task :default => ["build"]
 CLEAN.include [ 'pkg', 'rdoc' ]
 name = "net-ssh"
 
-$:.unshift File.join(File.dirname(__FILE__), 'lib')
-require "net/ssh"
+require_relative "lib/net/ssh/version"
 version = Net::SSH::Version::CURRENT
-
-begin
-  require "jeweler"
-  Jeweler::Tasks.new do |s|
-    s.version = version
-    s.name = name
-    s.rubyforge_project = s.name
-    s.summary = "Net::SSH: a pure-Ruby implementation of the SSH2 client protocol."
-    s.description = s.summary + " It allows you to write programs that invoke and interact with processes on remote servers, via SSH2."
-    s.email = "net-ssh@solutious.com"
-    s.homepage = "https://github.com/net-ssh/net-ssh"
-    s.authors = ["Jamis Buck", "Delano Mandelbaum"]
-
-    # Note: this is run at package time not install time so if you are
-    # running on jruby, you need to install jruby-pageant manually.
-    if RUBY_PLATFORM == "java"
-      s.add_dependency 'jruby-pageant', ">=1.1.1"
-    end
-
-    s.add_development_dependency 'test-unit'
-    s.add_development_dependency 'mocha'
-
-    s.license = "MIT"
-
-    s.signing_key = File.join('/mnt/gem/', 'gem-private_key.pem')
-    s.cert_chain  = ['gem-public_cert.pem']
-  end
-  Jeweler::GemcutterTasks.new
-rescue LoadError
-  puts "Jeweler (or a dependency) not available. Install it with: sudo gem install jeweler"
-end
-
-require 'rake/testtask'
-Rake::TestTask.new do |t|
-  t.libs = ["lib", "test"]
-end
 
 extra_files = %w[LICENSE.txt THANKS.txt CHANGES.txt ]
 RDoc::Task.new do |rdoc|
@@ -59,4 +41,49 @@ RDoc::Task.new do |rdoc|
   extra_files.each { |file|
     rdoc.rdoc_files.include(file) if File.exists?(file)
   }
+end
+
+namespace :rdoc do
+desc "Update gh-pages branch"
+task :publish do
+  # copy/checkout
+  rm_rf "/tmp/net-ssh-rdoc"
+  rm_rf "/tmp/net-ssh-gh-pages"
+  cp_r "./rdoc", "/tmp/net-ssh-rdoc"
+  mkdir "/tmp/net-ssh-gh-pages"
+  Dir.chdir "/tmp/net-ssh-gh-pages" do
+    sh "git clone --branch gh-pages --single-branch https://github.com/net-ssh/net-ssh"
+    rm_rf "/tmp/net-ssh-gh-pages/net-ssh/*"
+  end
+  # update
+  sh "cp -rf ./rdoc/* /tmp/net-ssh-gh-pages/net-ssh/"
+  Dir.chdir "/tmp/net-ssh-gh-pages/net-ssh" do
+    sh "git add -A ."
+    sh "git commit -m \"Update docs\""
+  end
+  # publish
+  Dir.chdir "/tmp/net-ssh-gh-pages/net-ssh" do
+    sh "git push origin gh-pages"
+  end
+end
+end
+
+require 'rake/testtask'
+
+Rake::TestTask.new do |t|
+  t.libs = ["lib", "test"]
+  t.libs << "test/integration" if ENV['NET_SSH_RUN_INTEGRATION_TESTS']
+  test_files = FileList['test/**/test_*.rb']
+  test_files -= FileList['test/integration/**/test_*.rb'] unless ENV['NET_SSH_RUN_INTEGRATION_TESTS']
+  test_files -= FileList['test/test/**/test_*.rb']
+  t.test_files =  test_files
+end
+
+desc "Run tests of Net::SSH:Test"
+Rake::TestTask.new do |t|
+  t.name = "test_test"
+  # we need to run test/test separatedly as it hacks io + other modules
+  t.libs = ["lib", "test"]
+  test_files = FileList['test/test/**/test_*.rb']
+  t.test_files =  test_files
 end

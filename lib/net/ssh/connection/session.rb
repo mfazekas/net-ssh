@@ -3,6 +3,7 @@ require 'net/ssh/ruby_compat'
 require 'net/ssh/connection/channel'
 require 'net/ssh/connection/constants'
 require 'net/ssh/service/forward'
+require 'net/ssh/connection/keepalive'
 
 module Net; module SSH; module Connection
 
@@ -79,7 +80,7 @@ module Net; module SSH; module Connection
       @max_pkt_size = (options.has_key?(:max_pkt_size) ? options[:max_pkt_size] : 0x8000)
       @max_win_size = (options.has_key?(:max_win_size) ? options[:max_win_size] : 0x20000)
 
-      @last_keepalive_sent_at = nil
+      @keepalive = Keepalive.new(self)
     end
 
     # Retrieves a custom property from this instance. This can be used to
@@ -209,6 +210,9 @@ module Net; module SSH; module Connection
       readers, writers, = Net::SSH::Compat.io_select(r, w, nil, io_select_wait(wait))
 
       postprocess(readers, writers)
+    rescue
+      force_channel_cleanup_on_close if closed?
+      raise
     end
 
     # This is called internally as part of #process. It dispatches any
@@ -219,7 +223,7 @@ module Net; module SSH; module Connection
     def preprocess
       return false if block_given? && !yield(self)
       dispatch_incoming_packets
-      channels.each { |id, channel| channel.process unless channel.closing? }
+      each_channel { |id, channel| channel.process unless channel.local_closed? }
       return false if block_given? && !yield(self)
       return true
     end
@@ -244,7 +248,7 @@ module Net; module SSH; module Connection
         writer.send_pending
       end
 
-      send_keepalive_as_needed(readers, writers)
+      @keepalive.send_as_needed(readers, writers)
       transport.rekey_as_needed
 
       return true
@@ -350,18 +354,20 @@ module Net; module SSH; module Connection
     end
 
     # Same as #exec, except this will block until the command finishes. Also,
-    # if a block is not given, this will return all output (stdout and stderr)
+    # if no block is given, this will return all output (stdout and stderr)
     # as a single string.
     #
     #   matches = ssh.exec!("grep something /some/files")
     def exec!(command, &block)
-      block ||= Proc.new do |ch, type, data|
+      block_or_concat = block || Proc.new do |ch, type, data|
         ch[:result] ||= ""
         ch[:result] << data
       end
 
-      channel = exec(command, &block)
+      channel = exec(command, &block_or_concat)
       channel.wait
+
+      channel[:result] ||= "" unless block
 
       return channel[:result]
     end
@@ -452,7 +458,27 @@ module Net; module SSH; module Connection
       old
     end
 
+    def cleanup_channel(channel)
+      if channel.local_closed? and channel.remote_closed?
+        info { "#{host} delete channel #{channel.local_id} which closed locally and remotely" }
+        channels.delete(channel.local_id)
+      end
+    end
+
+    # If the #preprocess and #postprocess callbacks for this session need to run
+    # periodically, this method returns the maximum number of seconds which may
+    # pass between callbacks.
+    def max_select_wait_time
+      @keepalive.interval if @keepalive.enabled?
+    end
+
+
     private
+
+      # iterate channels with the posibility of callbacks opening new channels during the iteration
+      def each_channel(&block)
+        channels.dup.each(&block)
+      end
 
       # Read all pending packets from the connection and dispatch them as
       # appropriate. Returns as soon as there are no more pending packets.
@@ -464,12 +490,29 @@ module Net; module SSH; module Connection
 
           send(MAP[packet.type], packet)
         end
+      rescue
+        force_channel_cleanup_on_close if closed?
+        raise
       end
 
       # Returns the next available channel id to be assigned, and increments
       # the counter.
       def get_next_channel_id
         @channel_id_counter += 1
+      end
+
+      def force_channel_cleanup_on_close
+        channels.each do |id, channel|
+          channel_closed(channel)
+        end
+      end
+
+      def channel_closed(channel)
+        channel.remote_closed!
+        channel.close
+
+        cleanup_channel(channel)
+        channel.do_close
       end
 
       # Invoked when a global request is received. The registered global
@@ -580,10 +623,7 @@ module Net; module SSH; module Connection
         info { "channel_close: #{packet[:local_id]}" }
 
         channel = channels[packet[:local_id]]
-        channel.close
-
-        channels.delete(packet[:local_id])
-        channel.do_close
+        channel_closed(channel)
       end
 
       def channel_success(packet)
@@ -597,28 +637,7 @@ module Net; module SSH; module Connection
       end
 
       def io_select_wait(wait)
-        return wait if wait
-        return wait unless options[:keepalive]
-        keepalive_interval
-      end
-
-      def keepalive_interval
-        options[:keepalive_interval] || DEFAULT_IO_SELECT_TIMEOUT
-      end
-
-      def should_send_keepalive?
-        return false unless options[:keepalive]
-        return true unless @last_keepalive_sent_at
-        Time.now - @last_keepalive_sent_at >= keepalive_interval
-      end
-
-      def send_keepalive_as_needed(readers, writers)
-        return unless readers.nil? && writers.nil?
-        return unless should_send_keepalive?
-        info { "sending keepalive" }
-        msg = Net::SSH::Buffer.from(:byte, Packet::IGNORE, :string, "keepalive")
-        send_message(msg)
-        @last_keepalive_sent_at = Time.now
+        [wait, max_select_wait_time].compact.min
       end
 
       MAP = Constants.constants.inject({}) do |memo, name|

@@ -3,7 +3,7 @@ require 'net/ssh/connection/session'
 
 module Connection
 
-  class TestSession < Test::Unit::TestCase
+  class TestSession < NetSSHTest
     include Net::SSH::Connection::Constants
 
     def test_constructor_should_set_defaults
@@ -116,15 +116,26 @@ module Connection
       process_times(0)
     end
 
+    def test_can_open_channels_in_process # see #110
+      chid = session.send(:get_next_channel_id)
+      session.channels[chid] = stub("channel", :local_closed? => false)
+      session.channels[chid].expects(:process).with() do
+        session.open_channel
+        true
+      end
+      IO.expects(:select).never
+      process_times(2)
+    end
+
     def test_process_should_exit_after_processing_if_block_is_true_then_false
-      session.channels[0] = stub("channel", :closing? => false)
+      session.channels[0] = stub("channel", :local_closed? => false)
       session.channels[0].expects(:process)
       IO.expects(:select).never
       process_times(2)
     end
 
     def test_process_should_not_process_channels_that_are_closing
-      session.channels[0] = stub("channel", :closing? => true)
+      session.channels[0] = stub("channel", :local_closed? => true)
       session.channels[0].expects(:process).never
       IO.expects(:select).never
       process_times(2)
@@ -182,6 +193,7 @@ module Connection
     end
 
     def test_global_request_handler_returning_other_value_should_raise_error
+      transport.expects(:closed?).at_least_once.returns(false)
       session.on_global_request("testing") { "bug" }
       transport.return(GLOBAL_REQUEST, :string, "testing", :bool, true)
       assert_raises(RuntimeError) { process_times(2) }
@@ -299,8 +311,17 @@ module Connection
     end
 
     def test_channel_close_packet_should_be_routed_to_corresponding_channel_and_channel_should_be_closed_and_removed
-      channel_at(14).expects(:do_close).with()
-      session.channels[14].expects(:close).with()
+      session.channels[14] = stub("channel") do
+          # this simulates the case where we closed the channel first, sent
+          # CHANNEL_CLOSE to server and are waiting for server's response.
+          expects(:local_closed?).returns(true)
+          expects(:do_close)
+          expects(:close).with()
+          expects(:remote_closed!).with()
+          expects(:remote_closed?).with().returns(true)
+          expects(:local_id).returns(14)
+      end
+
       transport.return(CHANNEL_CLOSE, :long, 14)
       process_times(2)
       assert session.channels.empty?
@@ -366,10 +387,27 @@ module Connection
     def test_process_should_call_enqueue_message_if_io_select_timed_out
       timeout = Net::SSH::Connection::Session::DEFAULT_IO_SELECT_TIMEOUT
       options = { :keepalive => true }
-      expected_packet = P(:byte, Net::SSH::Packet::IGNORE, :string, "keepalive")
+      expected_packet = P(:byte, Net::SSH::Packet::GLOBAL_REQUEST, :string, "keepalive@openssh.com", :bool, true)
       IO.stubs(:select).with([socket],[],nil,timeout).returns(nil)
-      transport.expects(:enqueue_message).with{ |msg| msg.content == expected_packet.content  }
+      transport.expects(:enqueue_message).with{ |msg| msg.content == expected_packet.content }
       session(options).process
+    end
+
+    def test_process_should_raise_if_keepalives_not_answered
+      timeout = Net::SSH::Connection::Session::DEFAULT_IO_SELECT_TIMEOUT
+      options = { :keepalive => true, :keepalive_interval => 300, :keepalive_maxcount => 3 }
+      expected_packet = P(:byte, Net::SSH::Packet::GLOBAL_REQUEST, :string, "keepalive@openssh.com", :bool, true)
+      [1,2,3].each do |i|
+        Time.stubs(:now).returns(Time.at(i*300))
+        IO.stubs(:select).with([socket],[],nil,timeout).returns(nil)
+        transport.expects(:enqueue_message).with{ |msg| msg.content == expected_packet.content }
+        session(options).process
+      end
+
+      Time.stubs(:now).returns(Time.at(4*300))
+      IO.stubs(:select).with([socket],[],nil,timeout).returns(nil)
+      transport.expects(:enqueue_message).with{ |msg| msg.content == expected_packet.content }
+      assert_raises(Net::SSH::Timeout) { session(options).process }
     end
 
     def test_process_should_not_call_enqueue_message_unless_io_select_timed_out
@@ -399,6 +437,14 @@ module Connection
       options = { :keepalive => true, :keepalive_interval => timeout }
       IO.expects(:select).with([socket],[],nil,timeout).returns([[],[],[]])
       session(options).process
+    end
+
+    def test_process_should_call_io_select_with_wait_if_provided_and_minimum
+      timeout = 10
+      wait = 5
+      options = { :keepalive => true, :keepalive_interval => timeout }
+      IO.expects(:select).with([socket],[],nil,wait).returns([[],[],[]])
+      session(options).process(wait)
     end
 
     def test_loop_should_call_process_until_process_returns_false
@@ -456,6 +502,21 @@ module Connection
       assert_equal "some data", session.exec!("ls")
     end
 
+    def test_exec_bang_without_block_should_return_empty_string_for_empty_command_output
+      prep_exec('ls', :stdout, '')
+      assert_equal "", session.exec!('ls')
+    end
+
+    def test_max_select_wait_time_should_return_keepalive_interval_when_keepalive_enabled
+      options = { :keepalive => true, :keepalive_interval => 5 }
+      assert_equal 5, session(options).max_select_wait_time
+    end
+
+    def test_max_select_wait_time_should_return_nil_when_keepalive_disabled
+      options = {}
+      assert_nil session(options).max_select_wait_time
+    end
+
     private
 
       def prep_exec(command, *data)
@@ -471,10 +532,8 @@ module Connection
 
             t2.return(CHANNEL_SUCCESS, :long, p[:remote_id])
 
-            0.step(data.length-1, 2) do |index|
-              type = data[index]
-              datum = data[index+1]
-
+            data.each_slice(2) do |type, datum|
+              next if datum.empty?
               if type == :stdout
                 t2.return(CHANNEL_DATA, :long, p[:remote_id], :string, datum)
               else
@@ -506,7 +565,7 @@ module Connection
       end
 
       def channel_at(local_id)
-        session.channels[local_id] = stub("channel", :process => true, :closing? => false)
+        session.channels[local_id] = stub("channel", :process => true, :local_closed? => false)
       end
 
       def transport(options={})

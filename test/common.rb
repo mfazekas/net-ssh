@@ -1,7 +1,6 @@
 $LOAD_PATH.unshift "#{File.dirname(__FILE__)}/../lib"
-gem "test-unit" # http://rubyforge.org/pipermail/test-unit-tracker/2009-July/000075.html
-gem 'mocha'
-require 'test/unit'
+
+require 'minitest/autorun'
 require 'mocha/setup'
 require 'net/ssh/buffer'
 require 'net/ssh/config'
@@ -12,11 +11,47 @@ require 'ostruct'
 
 # clear the default files out so that tests don't get confused by existing
 # SSH config files.
-$original_config_default_files = Net::SSH::Config.default_files.dup
+$_original_config_default_files = Net::SSH::Config.default_files.dup # rubocop:disable Style/GlobalVars
 Net::SSH::Config.default_files.clear
+
+def with_restored_default_files(&block)
+  act_default_files = Net::SSH::Config.default_files.dup
+  begin
+    Net::SSH::Config.default_files.clear
+    Net::SSH::Config.default_files.concat($_original_config_default_files) # rubocop:disable Style/GlobalVars
+    yield
+  ensure
+    Net::SSH::Config.default_files.clear
+    Net::SSH::Config.default_files.concat(act_default_files)
+  end
+end
 
 def P(*args)
   Net::SSH::Packet.new(Net::SSH::Buffer.from(*args))
+end
+
+class NetSSHTest < Minitest::Test
+  def assert_nothing_raised(&block)
+    yield
+  end
+
+  def assert_not_nil obj, msg = nil
+    refute_nil obj, msg
+  end
+end
+
+class MockPrompt
+  def start(info)
+    @info = info
+    self
+  end
+
+  def ask(message, echo)
+    _ask(message, @info, echo)
+  end
+
+  def success
+  end
 end
 
 class MockTransport < Net::SSH::Transport::Session
@@ -41,6 +76,7 @@ class MockTransport < Net::SSH::Transport::Session
   attr_accessor :mock_enqueue
 
   def initialize(options={})
+    @options = options
     self.logger = options[:logger]
     self.host_as_string = "net.ssh.test,127.0.0.1"
     self.server_version = OpenStruct.new(:version => "SSH-2.0-Ruby/Net::SSH::Test")
@@ -68,6 +104,10 @@ class MockTransport < Net::SSH::Transport::Session
     else
       super
     end
+  end
+
+  def closed?
+    false
   end
 
   def poll_message

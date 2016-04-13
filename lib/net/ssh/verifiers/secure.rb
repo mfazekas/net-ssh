@@ -13,18 +13,16 @@ module Net; module SSH; module Verifiers
   # Otherwise, this returns true.
   class Secure
     def verify(arguments)
-      options = arguments[:session].options
-      host = options[:host_key_alias] || arguments[:session].host_as_string
-      matches = Net::SSH::KnownHosts.search_for(host, arguments[:session].options)
+      host_keys = arguments[:session].host_keys
 
       # We've never seen this host before, so raise an exception.
-      if matches.empty?
-        process_cache_miss(host, arguments, HostKeyUnknown, "is unknown")
+      if host_keys.empty?
+        process_cache_miss(host_keys, arguments, HostKeyUnknown, "is unknown")
       end
 
       # If we found any matches, check to see that the key type and
       # blob also match.
-      found = matches.any? do |key|
+      found = host_keys.any? do |key|
         key.ssh_type == arguments[:key].ssh_type &&
         key.to_blob  == arguments[:key].to_blob
       end
@@ -32,7 +30,7 @@ module Net; module SSH; module Verifiers
       # If a match was found, return true. Otherwise, raise an exception
       # indicating that the key was not recognized.
       unless found
-        process_cache_miss(host, arguments, HostKeyMismatch, "does not match")
+        process_cache_miss(host_keys, arguments, HostKeyMismatch, "does not match")
       end
 
       found
@@ -40,12 +38,12 @@ module Net; module SSH; module Verifiers
 
     private
 
-    def process_cache_miss(host, args, exc_class, message)
+    def process_cache_miss(host_keys, args, exc_class, message)
       exception = exc_class.new("fingerprint #{args[:fingerprint]} " +
-                                "#{message} for #{host.inspect}")
+                                "#{message} for #{host_keys.host.inspect}")
       exception.data = args
       exception.callback = Proc.new do
-        Net::SSH::KnownHosts.add(host, args[:key], args[:session].options)
+        host_keys.add_host_key(args[:key])
       end
       raise exception
     end

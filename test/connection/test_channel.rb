@@ -3,7 +3,7 @@ require 'net/ssh/connection/channel'
 
 module Connection
 
-  class TestChannel < Test::Unit::TestCase
+  class TestChannel < NetSSHTest
     include Net::SSH::Connection::Constants
 
     def teardown
@@ -63,10 +63,10 @@ module Connection
       assert_equal "helloworld", channel.output.to_s
     end
 
-    def test_close_before_channel_has_been_confirmed_should_do_nothing
+    def test_close_before_channel_has_been_confirmed_should_set_closing
       assert !channel.closing?
       channel.close
-      assert !channel.closing?
+      assert channel.closing?
     end
 
     def test_close_should_set_closing_and_send_message
@@ -74,7 +74,10 @@ module Connection
       assert !channel.closing?
 
       connection.expect { |t,packet| assert_equal CHANNEL_CLOSE, packet.type }
+      connection.expects(:cleanup_channel).with(channel)
       channel.close
+
+      channel.process
 
       assert channel.closing?
     end
@@ -258,6 +261,18 @@ module Connection
       assert channel.pending_requests.empty?
     end
 
+    def test_send_channel_request_should_wait_for_remote_id
+      channel.expects(:remote_id).times(1).returns(nil)
+      msg = nil
+      begin
+        channel.send_channel_request("exec", :string, "ls")
+      rescue RuntimeError => e
+        msg = e.message
+      end
+      assert_equal "Channel open not yet confirmed, please call send_channel_request(or exec) from block of open_channel", msg
+      assert channel.pending_requests.empty?
+    end
+
     def test_send_channel_request_with_callback_should_want_reply
       channel.do_open_confirmation(0, 100, 100)
       connection.expect do |t,p|
@@ -374,6 +389,11 @@ module Connection
       channel.wait
     end
 
+    def test_wait_until_open_confirmed_should_block_while_remote_id_nil
+      channel.expects(:remote_id).times(3).returns(nil,nil,3)
+      channel.send(:wait_until_open_confirmed)
+    end
+
     def test_eof_bang_should_send_eof_to_server
       channel.do_open_confirmation(0, 1000, 1000)
       connection.expect { |t,p| assert_equal CHANNEL_EOF, p.type }
@@ -409,14 +429,14 @@ module Connection
 
     def test_data_should_precede_eof
       channel.do_open_confirmation(0, 1000, 1000)
-      connection.expect do |t,p|
+      connection.expect do |_t,p|
         assert_equal CHANNEL_DATA, p.type
-        connection.expect { |t,p| assert_equal CHANNEL_EOF, p.type }
+        connection.expect { |_t,p2| assert_equal CHANNEL_EOF, p2.type }
       end
       channel.send_data "foo"
       channel.eof!
       channel.process
-   end
+    end
 
     private
 

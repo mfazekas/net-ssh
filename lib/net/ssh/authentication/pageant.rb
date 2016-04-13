@@ -1,10 +1,20 @@
-require 'dl/import'
-
 if RUBY_VERSION < "1.9"
+  require 'dl/import'
   require 'dl/struct'
-else
+elsif RUBY_VERSION < "2.1"
+  require 'dl/import'
   require 'dl/types'
   require 'dl'
+else
+  require 'fiddle'
+  require 'fiddle/types'
+  require 'fiddle/import'
+
+  # For now map DL to Fiddler versus updating all the code below
+  module DL
+    CPtr ||= Fiddle::Pointer
+    RUBY_FREE ||= Fiddle::RUBY_FREE
+  end
 end
 
 require 'net/ssh/errors'
@@ -36,12 +46,17 @@ module Net; module SSH; module Authentication
         dlload 'advapi32'
 
         SIZEOF_DWORD = DL.sizeof('L')
-      else
+      elsif RUBY_VERSION < "2.1"
         extend DL::Importer
         dlload 'user32','kernel32', 'advapi32'
         include DL::Win32Types
 
         SIZEOF_DWORD = DL::SIZEOF_LONG
+      else
+        extend Fiddle::Importer
+        dlload 'user32','kernel32', 'advapi32'
+        include Fiddle::Win32Types
+        SIZEOF_DWORD = Fiddle::SIZEOF_LONG
       end
 
       typealias("LPCTSTR", "char *")         # From winnt.h
@@ -73,7 +88,7 @@ module Net; module SSH; module Authentication
       extern 'HANDLE CreateFileMapping(HANDLE, void *, DWORD, ' +
         'DWORD, DWORD, LPCTSTR)'
 
-      # args: hFileMappingObject, dwDesiredAccess, dwFileOffsetHigh, 
+      # args: hFileMappingObject, dwDesiredAccess, dwFileOffsetHigh,
       #           dwfileOffsetLow, dwNumberOfBytesToMap
       extern 'LPVOID MapViewOfFile(HANDLE, DWORD, DWORD, DWORD, DWORD)'
 
@@ -86,7 +101,7 @@ module Net; module SSH; module Authentication
       # args: hWnd, Msg, wParam, lParam, fuFlags, uTimeout, lpdwResult
       extern 'LRESULT SendMessageTimeout(HWND, UINT, WPARAM, LPARAM, ' +
         'UINT, UINT, PDWORD_PTR)'
-      
+
       # args: none
       extern 'DWORD GetLastError()'
 
@@ -112,8 +127,8 @@ module Net; module SSH; module Authentication
       extern 'BOOL IsValidSecurityDescriptor(LPVOID)'
 
       # Constants needed for security attribute retrieval.
-      # Specifies the access mask corresponding to the desired access 
-      # rights. 
+      # Specifies the access mask corresponding to the desired access
+      # rights.
       TOKEN_QUERY = 0x8
 
       # The value of TOKEN_USER from the TOKEN_INFORMATION_CLASS enum.
@@ -137,6 +152,9 @@ module Net; module SSH; module Authentication
                                     'USHORT Control', 'LPVOID Owner',
                                     'LPVOID Group', 'LPVOID Sacl',
                                     'LPVOID Dacl']
+
+      # The COPYDATASTRUCT is used to send WM_COPYDATA messages
+      COPYDATASTRUCT = struct ['uintptr_t dwData', 'DWORD cbData', 'LPVOID lpData']
 
       # Compatibility for security attribute retrieval.
       if RUBY_VERSION < "1.9"
@@ -198,11 +216,10 @@ module Net; module SSH; module Authentication
         raise_error_if_zero(
           Win.IsValidSecurityDescriptor(psd_information))
 
-        nLength = Win::SECURITY_ATTRIBUTES.size
-        lpSecurityDescriptor = psd_information
-        bInheritHandle = 1
-        sa = [nLength, lpSecurityDescriptor.to_i,
-              bInheritHandle].pack("LLC")
+        sa = Win::SECURITY_ATTRIBUTES.new(malloc_ptr(Win::SECURITY_ATTRIBUTES.size))
+        sa.nLength = Win::SECURITY_ATTRIBUTES.size
+        sa.lpSecurityDescriptor = psd_information.to_i
+        sa.bInheritHandle = 1
 
         return sa
       end
@@ -278,7 +295,7 @@ module Net; module SSH; module Authentication
         new
       end
 
-      # Create a new instance that communicates with the running pageant 
+      # Create a new instance that communicates with the running pageant
       # instance. If no such instance is running, this will cause an error.
       def initialize
         @win = Win.FindWindow("Pageant", "Pageant")
@@ -296,20 +313,20 @@ module Net; module SSH; module Authentication
       # the first.
       def send(data, *args)
         @input_buffer.append(data)
-        
+
         ret = data.length
-        
+
         while true
           return ret if @input_buffer.length < 4
           msg_length = @input_buffer.read_long + 4
           @input_buffer.reset!
-      
+
           return ret if @input_buffer.length < msg_length
           msg = @input_buffer.read!(msg_length)
           @output_buffer.append(send_query(msg))
         end
       end
-      
+
       # Reads +n+ bytes from the cached result of the last query. If +n+
       # is +nil+, returns all remaining data from the last query.
       def read(n = nil)
@@ -341,7 +358,7 @@ module Net; module SSH; module Authentication
             "Creation of file mapping failed with error: #{Win.GetLastError}"
         end
 
-        ptr = Win.MapViewOfFile(filemap, Win::FILE_MAP_WRITE, 0, 0, 
+        ptr = Win.MapViewOfFile(filemap, Win::FILE_MAP_WRITE, 0, 0,
                                 0)
 
         if ptr.nil? || ptr.null?
@@ -350,10 +367,13 @@ module Net; module SSH; module Authentication
 
         Win.set_ptr_data(ptr, query)
 
-        cds = Win.get_ptr [AGENT_COPYDATA_ID, mapname.size + 1,
-                           Win.get_cstr(mapname)].pack("LLp")
+        # using struct to achieve proper alignment and field size on 64-bit platform
+        cds = Win::COPYDATASTRUCT.new(Win.malloc_ptr(Win::COPYDATASTRUCT.size))
+        cds.dwData = AGENT_COPYDATA_ID
+        cds.cbData = mapname.size + 1
+        cds.lpData = Win.get_cstr(mapname)
         succ = Win.SendMessageTimeout(@win, Win::WM_COPYDATA, Win::NULL,
-                                      cds, Win::SMTO_NORMAL, 5000, id)
+                                      cds.to_ptr, Win::SMTO_NORMAL, 5000, id)
 
         if succ > 0
           retlen = 4 + ptr.to_s(4).unpack("N")[0]

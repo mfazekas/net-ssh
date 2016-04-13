@@ -1,9 +1,9 @@
-require 'common'
+require_relative '../common'
 require 'net/ssh/authentication/key_manager'
 
 module Authentication
 
-  class TestKeyManager < Test::Unit::TestCase
+  class TestKeyManager < NetSSHTest
     def test_key_files_and_known_identities_are_empty_by_default
       assert manager.key_files.empty?
       assert manager.known_identities.empty?
@@ -54,6 +54,15 @@ module Authentication
 
       assert_equal({:from => :file, :file => first, :key => rsa}, manager.known_identities[rsa])
       assert_equal({:from => :file, :file => second, :key => dsa}, manager.known_identities[dsa])
+    end
+
+    def test_each_identity_should_not_prompt_for_passphrase_in_non_interactive_mode
+      manager(:non_interactive => true).stubs(:agent).returns(nil)
+      first = File.expand_path("/first")
+      stub_file_private_key first, rsa, :passphrase => :should_not_be_asked
+      identities = []
+      manager.each_identity { |identity| identities << identity }
+      assert_equal(identities, [])
     end
 
     def test_identities_should_load_from_agent
@@ -156,18 +165,20 @@ module Authentication
 
       def stub_file_private_key(name, key, options = {})
         manager.add(name)
+        File.stubs(:file?).with(name).returns(true)
         File.stubs(:readable?).with(name).returns(true)
+        File.stubs(:file?).with(name + ".pub").returns(true)
         File.stubs(:readable?).with(name + ".pub").returns(false)
 
         case options.fetch(:passphrase, :indifferently)
         when :should_be_asked
-          Net::SSH::KeyFactory.expects(:load_private_key).with(name, nil, false).raises(OpenSSL::PKey::RSAError).at_least_once
-          Net::SSH::KeyFactory.expects(:load_private_key).with(name, nil, true).returns(key).at_least_once
+          Net::SSH::KeyFactory.expects(:load_private_key).with(name, nil, false, prompt).raises(OpenSSL::PKey::RSAError).at_least_once
+          Net::SSH::KeyFactory.expects(:load_private_key).with(name, nil, true, prompt).returns(key).at_least_once
         when :should_not_be_asked
-          Net::SSH::KeyFactory.expects(:load_private_key).with(name, nil, false).raises(OpenSSL::PKey::RSAError).at_least_once
-          Net::SSH::KeyFactory.expects(:load_private_key).with(name, nil, true).never
+          Net::SSH::KeyFactory.expects(:load_private_key).with(name, nil, false, prompt).raises(OpenSSL::PKey::RSAError).at_least_once
+          Net::SSH::KeyFactory.expects(:load_private_key).with(name, nil, true, prompt).never
         else # :indifferently
-          Net::SSH::KeyFactory.expects(:load_private_key).with(name, nil, any_of(true, false)).returns(key).at_least_once
+          Net::SSH::KeyFactory.expects(:load_private_key).with(name, nil, any_of(true, false), prompt).returns(key).at_least_once
         end
 
         # do not override OpenSSL::PKey::EC#public_key
@@ -179,7 +190,9 @@ module Authentication
 
       def stub_file_public_key(name, key)
         manager.add(name)
-        File.stubs(:readable?).with(name).returns(false)
+        File.stubs(:file?).with(name).returns(true)
+        File.stubs(:readable?).with(name).returns(true)
+        File.stubs(:file?).with(name + ".pub").returns(true)
         File.stubs(:readable?).with(name + ".pub").returns(true)
 
         Net::SSH::KeyFactory.expects(:load_public_key).with(name + ".pub").returns(key).at_least_once
@@ -218,8 +231,12 @@ module Authentication
                                                  ecdsa_sha2_nistp521])
       end
 
+      def prompt
+        @promp ||= MockPrompt.new
+      end
+
       def manager(options = {})
-        @manager ||= Net::SSH::Authentication::KeyManager.new(nil, options)
+        @manager ||= Net::SSH::Authentication::KeyManager.new(nil, {password_prompt: prompt}.merge(options))
       end
 
   end

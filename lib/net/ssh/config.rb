@@ -31,6 +31,7 @@ module Net; module SSH
   # * RekeyLimit => :rekey_limit
   # * User => :user
   # * UserKnownHostsFile => :user_known_hosts_file
+  # * NumberOfPasswordPrompts => :number_of_password_prompts
   #
   # Note that you will never need to use this class directly--you can control
   # whether the OpenSSH configuration files are read by passing the :config
@@ -58,7 +59,7 @@ module Net; module SSH
       # given +files+ (defaulting to the list of files returned by
       # #default_files), translates the resulting hash into the options
       # recognized by Net::SSH, and returns them.
-      def for(host, files=default_files)
+      def for(host, files=expandable_default_files)
         translate(files.inject({}) { |settings, file|
           load(file, host, settings)
         })
@@ -177,6 +178,15 @@ module Net; module SSH
             hash[:keys] = value
           when 'macs' then
             hash[:hmac] = value.split(/,/)
+          when 'serveralivecountmax'
+            hash[:keepalive_maxcount] = value.to_i if value
+          when 'serveraliveinterval'
+            if value && value.to_i > 0
+              hash[:keepalive] = true
+              hash[:keepalive_interval] = value.to_i
+            else
+              hash[:keepalive] = false
+            end
           when 'passwordauthentication'
             if value
               (hash[:auth_methods] << 'password').uniq!
@@ -219,6 +229,8 @@ module Net; module SSH
           when 'sendenv'
             multi_send_env = value.to_s.split(/\s+/)
             hash[:send_env] = multi_send_env.map { |e| Regexp.new pattern2regex(e).source, false }
+          when 'numberofpasswordprompts'
+            hash[:number_of_password_prompts] = value.to_i
           end
           hash
         end
@@ -227,14 +239,36 @@ module Net; module SSH
 
       private
 
+        def expandable_default_files
+          default_files.keep_if do |path|
+            begin
+              File.expand_path(path)
+              true
+            rescue ArgumentError
+              false
+            end
+          end
+        end
+
         # Converts an ssh_config pattern into a regex for matching against
         # host names.
         def pattern2regex(pattern)
-          pattern = "^" + pattern.to_s.gsub(/\./, "\\.").
-            gsub(/\?/, '.').
-            gsub(/([+\/])/, '\\\\\\0').
-            gsub(/\*/, '.*') + "$"
-          Regexp.new(pattern, true)
+          tail = pattern
+          prefix = ""
+          while !tail.empty? do
+            head,sep,tail = tail.partition(/[\*\?]/)
+            prefix = prefix + Regexp.quote(head)
+            case sep
+            when '*'
+              prefix += '.*'
+            when '?'
+              prefix += '.'
+            when ''
+            else
+              fail "Unpexpcted sep:#{sep}"
+            end
+          end
+          Regexp.new("^" + prefix + "$", true)
         end
 
         # Converts the given size into an integer number of bytes.

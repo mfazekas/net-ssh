@@ -1,0 +1,75 @@
+---
+- hosts: all
+  sudo: yes
+  vars:
+    no_rvm: no
+    myuser: vagrant
+    mygroup: vagrant
+    homedir: /home/vagrant
+    ruby_version: '2.0.0-p598'
+    ruby_versions:
+      - '2.0.0-p598'
+      - '2.3.0'
+#      - 'rbx-3.19'
+#      - 'jruby-9.0.5.0'
+    rvm_install_path: '/usr/local/rvm'
+    foopwd: "$6$mhOzf/yapZwS$3RwDl4GfWZ5VcfcsHrK9xNNTxyzLOJBsmMttDNaegIbXxMahV86.v/5HsNtit16MEl0EFf5CSW8Dz2yXV.8GB0"
+    foo2pwd: "$6$JiB7y7.M0yI$Abt.ZGIc4DwkRWeI6nKxzzPUZcux7hLRXSdpoKoZvswJz1SZyg5GRQWn9pGID0dgC6e4wFglfW6ev/qZoTqGk/"
+  pre_tasks:
+    - name: get currently installed ruby version
+      command: "{{rvm_install_path}}/rubies/ruby-{{ruby_version}}/bin/ruby -e 'puts \"#{RUBY_VERSION}-p#{RUBY_PATCHLEVEL}\"'"
+      register: current_ruby_version
+      ignore_errors: True
+  roles:
+    - { role: rvm_io.rvm1-ruby,
+        tags: ruby, sudo: True,
+        rvm1_rubies: "{{ ruby_versions }}",
+        rvm1_install_path: "{{rvm_install_path}}",
+        rvm1_gpg_key_server: pool.sks-keyservers.net,
+        when: "'{{current_ruby_version.stdout|default()}}' != '{{ruby_version}}' and not no_rvm" }
+  tasks:
+    - group: name="{{mygroup}}" state=present
+    - user: name=net_ssh_1 password="{{foopwd}}" group="{{mygroup}}" state=present
+    - user: name=net_ssh_2 password="{{foo2pwd}}" group="{{mygroup}}" state=present
+    - file: dest=/home/net_ssh_1/.ssh/ state=directory mode=0740 owner=net_ssh_1
+    - file: dest=/home/net_ssh_2/.ssh/ state=directory mode=0740 owner=net_ssh_2
+    - lineinfile: dest=/etc/sudoers.d/net_ssh_1 mode=0440 state=present create=yes
+        line='net_ssh_1 ALL=(ALL) NOPASSWD:ALL' regexp=net_ssh_1
+    - lineinfile: dest=/etc/sudoers.d/net_ssh_1 mode=0440 state=present create=yes
+        line='net_ssh_2 ALL=(ALL) NOPASSWD:ALL' regexp=net_ssh_2
+    - command: ssh-keygen -A
+      args:
+        creates: /etc/ssh/ssh_host_ed25519_key
+      notify: restart sshd
+    - name: sshd debug
+      lineinfile: dest='/etc/ssh/sshd_config' line='LogLevel DEBUG' regexp=LogLevel
+      notify: restart sshd
+    - name: sshd allow interactive
+      lineinfile: dest='/etc/ssh/sshd_config' line='ChallengeResponseAuthentication yes' regexp='^ChallengeResponseAuthentication.+'
+      notify: restart sshd
+    - name: sshd allow forward
+      lineinfile: dest='/etc/ssh/sshd_config' line='AllowTcpForwarding all' regexp=LogLevel
+      notify: restart sshd
+    - name: sshd allow forward
+      lineinfile: dest='/etc/ssh/sshd_config' line='GatewayPorts yes' regexp=LogLevel
+      notify: restart sshd
+    - name: put NET_SSH_RUN_INTEGRATION_TESTS=YES environment
+      lineinfile: dest='/etc/environment' line='NET_SSH_RUN_INTEGRATION_TESTS=YES'
+    - name: change dir in bashrc
+      lineinfile: dest="{{homedir}}/.bashrc" owner="{{myuser}}" mode=0644
+        regexp='^cd ' line='cd /net-ssh'
+    - apt: name="{{item}}" state=present
+      with_items:
+        - pv
+        - libgmp3-dev
+        - git
+    - gem: name="{{ item[1] }}" state=present user_install=no executable=/usr/local/rvm/wrappers/ruby-{{ item[0] }}/gem
+      with_nested:
+        - "{{ruby_versions}}"
+        - [ 'byebug', 'rake', 'jeweler', 'mocha', 'rbnacl', 'rbnacl-libsodium', 'minitest' ]
+      when: "not no_rvm"
+    - copy: content='echo "cd /net-ssh ; rake integration-test"' dest=/etc/update-motd.d/99-net-ssh-tests mode=0755
+  handlers:
+    - name: restart sshd
+      service: name=ssh state=restarted
+

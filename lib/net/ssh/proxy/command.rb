@@ -1,4 +1,5 @@
 require 'socket'
+require 'rubygems'
 require 'net/ssh/proxy/errors'
 require 'net/ssh/ruby_compat'
 
@@ -66,13 +67,38 @@ module Net; module SSH; module Proxy
         raise ConnectError, "#{e}: #{command_line}"
       end
       @command_line = command_line
-      class << io
-        def send(data, flag)
-          write_nonblock(data)
+      if Gem.win_platform?
+        # read_nonblock and write_nonblock are not available on Windows
+        # pipe. Use sysread and syswrite as a replacement works.
+        def io.send(data, flag)
+          syswrite(data)
         end
 
-        def recv(size)
-          read_nonblock(size)
+        def io.recv(size)
+          sysread(size)
+        end
+      else
+        def io.send(data, flag)
+          begin
+            result = write_nonblock(data)
+          rescue IO::WaitWritable, Errno::EINTR
+            IO.select(nil, [self])
+            retry
+          end
+          result
+        end
+
+        def io.recv(size)
+          begin
+            result = read_nonblock(size)
+          rescue IO::WaitReadable, Errno::EINTR
+            timeout_in_seconds = 20
+            if IO.select([self], nil, [self], timeout_in_seconds) == nil
+              raise "Unexpected spurious read wakeup"
+            end
+            retry
+          end
+          result
         end
       end
       io
