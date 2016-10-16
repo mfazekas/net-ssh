@@ -1,6 +1,8 @@
 require 'net/ssh/ruby_compat'
 require 'net/ssh/transport/openssl'
 
+require 'net/ssh/authentication/ed25519_loader'
+
 module Net; module SSH
 
   # Net::SSH::Buffer is a flexible class for building and parsing binary
@@ -34,6 +36,7 @@ module Net; module SSH
     # * :long => write a 4-byte integer (#write_long)
     # * :byte => write a single byte (#write_byte)
     # * :string => write a 4-byte length followed by character data (#write_string)
+    # * :mstring => same as string, but caller cannot resuse the string, avoids potential duplication (#write_moved)
     # * :bool => write a single byte, interpreted as a boolean (#write_bool)
     # * :bignum => write an SSH-encoded bignum (#write_bignum)
     # * :key => write an SSH-encoded key value (#write_key)
@@ -182,7 +185,7 @@ module Net; module SSH
       consume!
       data
     end
-      
+
     # Return the next 8 bytes as a 64-bit integer (in network byte order).
     # Returns nil if there are less than 8 bytes remaining to be read in the
     # buffer.
@@ -256,8 +259,8 @@ module Net; module SSH
           key.n = read_bignum
 
         when /^ssh-ed25519$/
-          key = ED25519::PubKey.read_keyblob(self)
-
+          Net::SSH::Authentication::ED25519Loader.raiseUnlessLoaded("unsupported key type `#{type}'")
+          key = Net::SSH::Authentication::ED25519::PubKey.read_keyblob(self)
         when /^ecdsa\-sha2\-(\w*)$/
           unless defined?(OpenSSL::PKey::EC)
             raise NotImplementedError, "unsupported key type `#{type}'"
@@ -284,7 +287,14 @@ module Net; module SSH
     # Writes the given data literally into the string. Does not alter the
     # read position. Returns the buffer object.
     def write(*data)
-      data.each { |datum| @content << datum }
+      data.each { |datum| @content << datum.dup.force_encoding('BINARY') }
+      self
+    end
+
+    # Optimized version of write where the caller gives up ownership of string
+    # to the method. This way we can mutate the string.
+    def write_moved(string)
+      @content << string.force_encoding('BINARY')
       self
     end
 
@@ -323,6 +333,19 @@ module Net; module SSH
         s = string.to_s
         write_long(s.bytesize)
         write(s)
+      end
+      self
+    end
+
+    # Writes each argument to the buffer as an SSH2-encoded string. Each
+    # string is prefixed by its length, encoded as a 4-byte long integer.
+    # Does not alter the read position. Returns the buffer object.
+    # Might alter arguments see write_moved
+    def write_mstring(*text)
+      text.each do |string|
+        s = string.to_s
+        write_long(s.bytesize)
+        write_moved(s)
       end
       self
     end

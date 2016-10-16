@@ -1,6 +1,7 @@
 require 'net/ssh/transport/openssl'
 require 'net/ssh/prompt'
-require 'net/ssh/authentication/ed25519'
+
+require 'net/ssh/authentication/ed25519_loader'
 
 module Net; module SSH
 
@@ -22,7 +23,7 @@ module Net; module SSH
     }
     if defined?(OpenSSL::PKey::EC)
       MAP["ecdsa"] = OpenSSL::PKey::EC
-      MAP["ed25519"] = ED25519::PrivKey
+      MAP["ed25519"] = Net::SSH::Authentication::ED25519::PrivKey if defined? Net::SSH::Authentication::ED25519
     end
 
     class <<self
@@ -48,45 +49,16 @@ module Net; module SSH
       # encrypted (requiring a passphrase to use), the user will be
       # prompted to enter their password unless passphrase works. 
       def load_data_private_key(data, passphrase=nil, ask_passphrase=true, filename="", prompt=Prompt.default)
-        if OpenSSL::PKey.respond_to?(:read)
-          pkey_read = true
-          error_class = ArgumentError
-        else
-          pkey_read = false
-          if data.match(/-----BEGIN DSA PRIVATE KEY-----/)
-            key_type = OpenSSL::PKey::DSA
-            error_class = OpenSSL::PKey::DSAError
-          elsif data.match(/-----BEGIN RSA PRIVATE KEY-----/)
-            key_type = OpenSSL::PKey::RSA
-            error_class = OpenSSL::PKey::RSAError
-          elsif data.match(/-----BEGIN EC PRIVATE KEY-----/) && defined?(OpenSSL::PKey::EC)
-            key_type = OpenSSL::PKey::EC
-            error_class = OpenSSL::PKey::ECError
-          elsif data.match(/-----BEGIN OPENSSH PRIVATE KEY-----/)
-            openssh_key = true
-            key_type = ED25519::PrivKey
-          elsif data.match(/-----BEGIN (.+) PRIVATE KEY-----/)
-            raise OpenSSL::PKey::PKeyError, "not a supported key type '#{$1}'"
-          else
-            raise OpenSSL::PKey::PKeyError, "not a private key (#{filename})"
-          end
-        end
+        key_read, error_classes = classify_key(data, filename)
 
         encrypted_key = data.match(/ENCRYPTED/)
-        openssh_key = data.match(/-----BEGIN OPENSSH PRIVATE KEY-----/)
         tries = 0
 
         prompter = nil
         result = 
           begin
-            if openssh_key
-              ED25519::PrivKey.read(data, passphrase || 'invalid')
-            elsif pkey_read
-              OpenSSL::PKey.read(data, passphrase || 'invalid')
-            else
-              key_type.new(data, passphrase || 'invalid')
-            end
-          rescue error_class
+            key_read[data, passphrase || 'invalid']
+          rescue *error_classes
             if encrypted_key && ask_passphrase
               tries += 1
               if tries <= 3
@@ -129,6 +101,32 @@ module Net; module SSH
         blob = blob.unpack("m*").first
         reader = Net::SSH::Buffer.new(blob)
         reader.read_key or raise OpenSSL::PKey::PKeyError, "not a public key #{filename.inspect}"
+      end
+
+      private
+
+      # Determine whether the file describes an RSA or DSA key, and return how load it
+      # appropriately.
+      def classify_key(data, filename)
+        if data.match(/-----BEGIN OPENSSH PRIVATE KEY-----/)
+          if defined?(Net::SSH::Authentication::ED25519)
+            return ->(key_data, passphrase) { Net::SSH::Authentication::ED25519::PrivKey.read(key_data, passphrase) }, [ArgumentError]
+          else
+            raise OpenSSL::PKey::PKeyError, "OpenSSH keys only supported if ED25519 is available - #{ED25519_LOAD_ERROR}"
+          end
+        elsif OpenSSL::PKey.respond_to?(:read)
+          return ->(key_data, passphrase) { OpenSSL::PKey.read(key_data, passphrase) }, [ArgumentError, OpenSSL::PKey::PKeyError]
+        elsif data.match(/-----BEGIN DSA PRIVATE KEY-----/)
+          return ->(key_data, passphrase) { OpenSSL::PKey::DSA.new(key_data, passphrase) }, [OpenSSL::PKey::DSAError]
+        elsif data.match(/-----BEGIN RSA PRIVATE KEY-----/)
+          return ->(key_data, passphrase) { OpenSSL::PKey::RSA.new(key_data, passphrase) }, [OpenSSL::PKey::RSAError]
+        elsif data.match(/-----BEGIN EC PRIVATE KEY-----/) && defined?(OpenSSL::PKey::EC)
+          return ->(key_data, passphrase) { OpenSSL::PKey::EC.new(key_data, passphrase) }, [OpenSSL::PKey::ECError]
+        elsif data.match(/-----BEGIN (.+) PRIVATE KEY-----/)
+          raise OpenSSL::PKey::PKeyError, "not a supported key type '#{$1}'"
+        else
+          raise OpenSSL::PKey::PKeyError, "not a private key (#{filename})"
+        end
       end
     end
 

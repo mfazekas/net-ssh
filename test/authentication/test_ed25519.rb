@@ -1,18 +1,24 @@
+unless ENV['NET_SSH_NO_RBNACL']
+
 require 'common'
-require 'net/ssh/authentication/ed25519'
+require 'net/ssh/authentication/ed25519_loader'
 require 'base64'
 
 module Authentication
 
   class TestED25519 < NetSSHTest
+    def setup
+      raise "No ED25519 set NET_SSH_NO_RBNACL to ignore this test" unless Net::SSH::Authentication::ED25519Loader::LOADED
+    end
+
     def test_no_pwd_key
       pub = Net::SSH::Buffer.new(Base64.decode64(public_key_no_pwd.split(' ')[1]))
       _type = pub.read_string
       pub_data = pub.read_string
       priv = private_key_no_pwd
 
-      pub_key = ED25519::PubKey.new(pub_data)
-      priv_key = ED25519::PrivKey.new(priv,nil)
+      pub_key = Net::SSH::Authentication::ED25519::PubKey.new(pub_data)
+      priv_key = Net::SSH::Authentication::ED25519::PrivKey.new(priv,nil)
 
       shared_secret = "Hello"
       signed = priv_key.ssh_do_sign(shared_secret)
@@ -30,8 +36,8 @@ module Authentication
       pub_data = pub.read_string
       priv = private_key_pwd
 
-      pub_key = ED25519::PubKey.new(pub_data)
-      priv_key = ED25519::PrivKey.new(priv,'pwd')
+      pub_key = Net::SSH::Authentication::ED25519::PubKey.new(pub_data)
+      priv_key = Net::SSH::Authentication::ED25519::PrivKey.new(priv,'pwd')
 
       shared_secret = "Hello"
       signed = priv_key.ssh_do_sign(shared_secret)
@@ -73,5 +79,7 @@ IDBAU=
       'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDB2NBh4GJPPUN1kXPMu8b633Xcv55WoKC3OkBjFAbzJ vagrant@vagrant-ubuntu-trusty-64'
     end
   end
+
+end
 
 end

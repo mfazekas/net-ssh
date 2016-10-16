@@ -147,7 +147,7 @@ module Net
 
           if info[:key]
             return Net::SSH::Buffer.from(:string, identity.ssh_type,
-              :string, info[:key].ssh_do_sign(data.to_s)).to_s
+              :mstring, info[:key].ssh_do_sign(data.to_s)).to_s
           end
 
           if info[:from] == :agent
@@ -176,7 +176,7 @@ module Net
         # or if the agent is otherwise not available.
         def agent
           return unless use_agent?
-          @agent ||= Agent.connect(logger)
+          @agent ||= Agent.connect(logger, options[:agent_socket_factory])
         rescue AgentNotAvailable
           @use_agent = false
           nil

@@ -116,6 +116,12 @@ module Net; module SSH; module Transport
       prepare_preferred_algorithms!
     end
 
+    # Start the algorithm negotation
+    def start
+      raise ArgumentError, "Cannot call start if it's negoitation started or done" if @pending || @initialized
+      send_kexinit
+    end
+
     # Request a rekey operation. This will return immediately, and does not
     # actually perform the rekey operation. It does cause the session to change
     # state, however--until the key exchange finishes, no new packets will be
@@ -281,8 +287,8 @@ module Net; module SSH; module Transport
 
         Net::SSH::Buffer.from(:byte, KEXINIT,
           :long, [rand(0xFFFFFFFF), rand(0xFFFFFFFF), rand(0xFFFFFFFF), rand(0xFFFFFFFF)],
-          :string, [kex, host_key, encryption, encryption, hmac, hmac],
-          :string, [compression, compression, language, language],
+          :mstring, [kex, host_key, encryption, encryption, hmac, hmac],
+          :mstring, [compression, compression, language, language],
           :bool, false, :long, 0)
       end
 
@@ -351,6 +357,7 @@ module Net; module SSH; module Transport
           :server_algorithm_packet => @server_packet,
           :client_algorithm_packet => @client_packet,
           :need_bytes => kex_byte_requirement,
+          :minimum_dh_bits => options[:minimum_dh_bits],
           :logger => logger)
         result = algorithm.exchange_keys
 

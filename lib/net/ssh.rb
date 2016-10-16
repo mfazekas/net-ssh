@@ -71,7 +71,8 @@ module Net
       :known_hosts, :global_known_hosts_file, :user_known_hosts_file, :host_key_alias,
       :host_name, :user, :properties, :passphrase, :keys_only, :max_pkt_size,
       :max_win_size, :send_env, :use_agent, :number_of_password_prompts,
-      :append_supported_algorithms, :non_interactive, :password_prompt
+      :append_supported_algorithms, :non_interactive, :password_prompt, :agent_socket_factory,
+      :minimum_dh_bits
     ]
 
     # The standard means of starting a new SSH connection. When used with a
@@ -178,7 +179,7 @@ module Net
     # * :user_known_hosts_file => the location of the user known hosts file.
     #   Set to an array to specify multiple user known hosts files.
     #   Defaults to %w(~/.ssh/known_hosts ~/.ssh/known_hosts2).
-    # * :use_agent => Set false to disable the use of ssh-agent. Defaults to 
+    # * :use_agent => Set false to disable the use of ssh-agent. Defaults to
     #   true
     # * :non_interactive => set to true if your app is non interactive and prefers
     #   authentication failure vs password prompt
@@ -195,6 +196,9 @@ module Net
     #   to prefer failing a password/etc auth methods vs asking for password
     # * :password_prompt => a custom prompt object with ask method. See Net::SSH::Prompt
     #
+    # * :agent_socket_factory => enables the user to pass a lambda/block that will serve as the socket factory
+    #    Net::SSH::start(user,host,agent_socket_factory: ->{ UNIXSocket.open('/foo/bar') })
+    #    example: ->{ UNIXSocket.open('/foo/bar')}
     # If +user+ parameter is nil it defaults to USER from ssh_config, or
     # local username
     def self.start(host, user=nil, options={}, &block)
@@ -203,20 +207,20 @@ module Net
         raise ArgumentError, "invalid option(s): #{invalid_options.join(', ')}"
       end
 
+      assign_defaults(options)
+
+      if options.values.include? nil
+        nil_options = options.keys.select { |k| options[k].nil? }
+        raise ArgumentError, "Value(s) have been set to nil: #{nil_options.join(', ')}"
+      end
+
       options[:user] = user if user
       options = configuration_for(host, options.fetch(:config, true)).merge(options)
       host = options.fetch(:host_name, host)
 
-      if !options.key?(:logger)
-        options[:logger] = Logger.new(STDERR)
-        options[:logger].level = Logger::FATAL
-      end
-
       if options[:non_interactive]
         options[:number_of_password_prompts] = 0
       end
-
-      options[:password_prompt] ||= Prompt.default(options)
 
       if options[:verbose]
         options[:logger].level = case options[:verbose]
@@ -268,6 +272,15 @@ module Net
         end
 
       Net::SSH::Config.for(host, files)
+    end
+
+    def self.assign_defaults(options)
+      if !options[:logger]
+        options[:logger] = Logger.new(STDERR)
+        options[:logger].level = Logger::FATAL
+      end
+
+      options[:password_prompt] ||= Prompt.default(options)
     end
   end
 end

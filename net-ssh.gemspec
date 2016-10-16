@@ -28,11 +28,13 @@ Gem::Specification.new do |spec|
   spec.executables   = spec.files.grep(%r{^exe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
 
-  spec.add_runtime_dependency("rbnacl-libsodium", ">= 1.0.2")
-  spec.add_runtime_dependency("rbnacl", ">= 3.1.2")
-  spec.add_runtime_dependency("bcrypt_pbkdf", "= 1.0.0.alpha1") unless RUBY_PLATFORM == "java"
+  unless ENV['NET_SSH_NO_RBNACL']
+    spec.add_development_dependency("rbnacl-libsodium", "~> 1.0.10")
+    spec.add_development_dependency("rbnacl", "~> 3.4.0")
+    spec.add_development_dependency("bcrypt_pbkdf", "~> 1.0.0.alpha1") unless RUBY_PLATFORM == "java"
+  end
 
-  spec.add_development_dependency "bundler", "~> 1.11.2"
+  spec.add_development_dependency "bundler", "~> 1.11"
   spec.add_development_dependency "rake", "~> 11.1"
   spec.add_development_dependency "minitest", "~> 5.0"
   spec.add_development_dependency "rubocop", "~> 0.39.0"
