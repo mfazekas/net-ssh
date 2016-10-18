@@ -10,11 +10,13 @@ require 'net/ssh/transport/session'
 require 'ostruct'
 
 if ENV["CI"]
-  require 'simplecov'
-  SimpleCov.start
+  unless Gem.win_platform?
+    require 'simplecov'
+    SimpleCov.start
 
-  require 'codecov'
-  SimpleCov.formatter = SimpleCov::Formatter::Codecov
+    require 'codecov'
+    SimpleCov.formatter = SimpleCov::Formatter::Codecov
+  end
 end
 
 # clear the default files out so that tests don't get confused by existing

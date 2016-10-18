@@ -12,6 +12,8 @@ install:
   - gem install bundler --no-document -v 1.13.5
   - SET BUNDLE_GEMFILE=Gemfile.norbnacl
   - bundle _1.13.5_ install --retry=3
+  - cinst freesshd
+  - cinst putty
 
 test_script:
   - SET BUNDLE_GEMFILE=Gemfile.norbnacl
