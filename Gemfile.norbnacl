@@ -5,4 +5,4 @@ ENV['NET_SSH_NO_RBNACL'] = 'true'
 gemspec
 
 gem 'simplecov', require: false, group: :test
-gem 'codecov', require: false, group: :test
+gem 'codecov', require: false, group: :test if ENV["CI"]
