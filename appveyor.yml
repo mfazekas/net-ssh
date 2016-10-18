@@ -18,5 +18,6 @@ install:
 test_script:
   - SET BUNDLE_GEMFILE=Gemfile.norbnacl
   - bundle _1.13.5_ exec rake test
+  - bundle _1.13.5_ exec ruby test\manual\test_pageant.rb
 
 build: off

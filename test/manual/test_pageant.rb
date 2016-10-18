@@ -11,17 +11,18 @@
 #       ruby -Ilib -Itest -rrubygems test/manual/test_pageant.rb
 #
 
-require 'common'
+require_relative '../common'
 require 'net/ssh/authentication/agent'
 
 module Authentication
 
-  class TestPageant < NetSSHTest
+  class TestPageapnt < NetSSHTest
 
     def test_agent_should_be_able_to_negotiate
       begin
         agent.negotiate!
       rescue Net::SSH::Authentication::AgentNotAvailable
+        raise
       end
     end
 
