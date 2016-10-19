@@ -9,7 +9,9 @@ module Authentication
       raise "No pageant found at:#{pageant_path}" unless File.executable?(pageant_path)
       pageant_pid = Process.spawn(pageant_path)
       puts "pageant started from: #{pageant_path} pid: #{pageant_pid}!!!"
+      system('tasklist')
       sleep 30
+      system('tasklist')
       yield
     ensure
       Process.kill(9, pageant_pid)
