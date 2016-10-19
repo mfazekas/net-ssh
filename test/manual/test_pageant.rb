@@ -22,6 +22,8 @@ module Authentication
       begin
         agent.negotiate!
       rescue Net::SSH::Authentication::AgentNotAvailable
+        puts "Test failing connect now!.... :#{$!}"
+        sleep 1800
         raise
       end
     end
