@@ -305,7 +305,7 @@ module Net; module SSH; module Authentication
           raise Net::SSH::Exception,
             "pageant process not running"
         else
-          puts "Has win:#{@wind}\n"
+          puts "Has win:#{@win}\n"
         end
 
         @input_buffer = Net::SSH::Buffer.new

@@ -22,7 +22,7 @@ module Authentication
         begin
           agent.negotiate!
         rescue
-          puts "Test failing connect now!.... :#{$!}"
+          puts "=> Test failing connect now!.... :#{$!}"
           sleep 1800
           raise
         end
