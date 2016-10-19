@@ -6,6 +6,7 @@ module Authentication
   class TestPageapnt < NetSSHTest
     def with_pagent
       pageant_path = 'C:\ProgramData\chocolatey\lib\putty.portable\tools\pageant.exe'
+      raise "No pageant found at:#{pageant_path}" unless File.executable?(pageant_path)
       pageant_pid = Process.spawn(pageant_path)
       sleep 3
       yield
