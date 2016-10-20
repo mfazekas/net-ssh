@@ -301,8 +301,11 @@ module Net; module SSH; module Authentication
         @win = Win.FindWindow("Pageant", "Pageant")
 
         if @win == 0
+          puts "No win:#{@win}"
           raise Net::SSH::Exception,
             "pageant process not running"
+        else
+          puts "Has win:#{@win}\n"
         end
 
         @input_buffer = Net::SSH::Buffer.new
